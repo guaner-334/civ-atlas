@@ -608,8 +608,16 @@ function hook(sim: CivSim, am: AssimModel): void {
         pickApart = apart;
         pickRuler = apart ? -1 : owner[g[0]];
       }
-      if (pick < 0 || keyed4(am.base, reg.seat[P.hearth], pickTag, k, U_DIVERGE) >= DIV_P) continue;
+      if (pick < 0) continue;
       const g = all[pick];
+      const divIn = sim.influence?.get('diverge.odds');
+      let divP = DIV_P;
+      if (divIn) {
+        let sum = 0;
+        for (const r of g) sum += divIn[r];
+        divP *= sum / g.length;
+      }
+      if (keyed4(am.base, reg.seat[P.hearth], pickTag, k, U_DIVERGE) >= divP) continue;
       // 新民族的发源州:这片里治所最宜居的(一样宜居取治所地块小的)
       let hearth = g[0];
       for (const r of g) if (T.seatSuit[r] > T.seatSuit[hearth] || (T.seatSuit[r] === T.seatSuit[hearth] && reg.seat[r] < reg.seat[hearth])) hearth = r;

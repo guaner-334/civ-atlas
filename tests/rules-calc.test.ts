@@ -21,7 +21,7 @@ import { TUNING_CALC } from '../src/gen/civ/tuning';
 import { tuningPatch, worldPatch } from '../src/gen/civ/tuningPatch';
 import { decodeRulesHash, rulesFileText, rulesHash } from '../src/gen/civ/ruleShare';
 import { deriveRuleSet } from '../src/gen/civ/ruleSetEdit';
-import { setupFor, setupOpt, yearsEdits } from '../src/ui/world/worldTarget';
+import { setupFor, setupOpt, startEdits } from '../src/ui/world/worldTarget';
 import { getEdits, setEdits, setRules } from '../src/ui/editsStore';
 import { helperJob } from '../src/ui/helperWork';
 import { searchSeedWith } from '../src/gen/finder/measure';
@@ -175,9 +175,9 @@ describe('没记换算版本的世界(第 1 版):每一条推历史的路都和�
 
 describe('新建的世界盖上现在的换算版本', () => {
   it('新建弹窗带一套规则、打造文明里选规则、在这张地图上打造新文明、用新版另存一份重推:都是现在的版本', () => {
-    expect(yearsEdits(undefined, undefined, RULES).rules!.calc).toBe(TUNING_CALC);
+    expect(startEdits(undefined, RULES).rules!.calc).toBe(TUNING_CALC);
     // 别的世界(第 1 版)的那一套拿来建新世界:也按现在的
-    expect(yearsEdits(undefined, undefined, OLD.rules).rules!.calc).toBe(TUNING_CALC);
+    expect(startEdits(undefined, OLD.rules).rules!.calc).toBe(TUNING_CALC);
     expect(newHistoryEdits(OLD, { civSeed: 99, from: 'wabc', rules: OLD.rules }).rules!.calc).toBe(TUNING_CALC);
     expect(newHistoryEdits(OLD, { civSeed: 99, from: 'wabc', rules: RULES }).rules!.calc).toBe(TUNING_CALC);
     setEdits(EMPTY_EDITS);

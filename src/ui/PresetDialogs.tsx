@@ -102,7 +102,6 @@ function useRulesPick(cur: RuleSet | undefined, startOn: boolean, note: string |
 export interface SavePresetProps {
   theme?: string;
   params: WorldParams;
-  endYear: number | undefined;
   /** 现在用的那一套规则(官方 = 不给) */
   rules?: RuleSet;
   /** 打开朋友的预设链接后点「存进我的预设…」:名字、连不连种子、带的规则照分享来的那一套 */
@@ -112,7 +111,7 @@ export interface SavePresetProps {
 }
 
 /** 存的是链接、作品墙带来的那一套:先加进「我的规则」,预设记着加进来的那一套(之后在「我的规则」里调了,用预设时跟着用调好的) */
-export function SavePresetDialog({ theme, params, endYear, rules, initial, onClose, onSaved }: SavePresetProps) {
+export function SavePresetDialog({ theme, params, rules, initial, onClose, onSaved }: SavePresetProps) {
   const st = usePresets();
   const own = st.list.find((p) => p.id === st.chosen);
   const [name, setName] = useState(() => initial?.name ?? own?.name ?? `我的预设 ${st.list.length + 1}`);
@@ -129,7 +128,7 @@ export function SavePresetDialog({ theme, params, endYear, rules, initial, onClo
       const got = adoptSharedRules(r);
       r = (got && findMyRules(got.id)?.rules) || r;
     }
-    savePreset(clean, params, withSeed, endYear, r);
+    savePreset(clean, params, withSeed, r);
     onSaved?.();
     onClose();
   };
@@ -211,14 +210,13 @@ export function SavePresetDialog({ theme, params, endYear, rules, initial, onClo
 export interface SharePresetProps {
   theme?: string;
   params: WorldParams;
-  endYear: number | undefined;
   /** 现在用的那一套规则(官方 = 不给) */
   rules?: RuleSet;
   onClose: () => void;
 }
 
 /** 剪贴板用不了:小窗留着,下面一格选中了链接让人自己复制 */
-export function SharePresetDialog({ theme, params, endYear, rules, onClose }: SharePresetProps) {
+export function SharePresetDialog({ theme, params, rules, onClose }: SharePresetProps) {
   const st = usePresets();
   const picked = st.chosen === 'shared' ? st.shared : st.list.find((p) => p.id === st.chosen);
   const [name, setName] = useState(() => picked?.name ?? '我的预设');
@@ -232,7 +230,6 @@ export function SharePresetDialog({ theme, params, endYear, rules, onClose }: Sh
     name: clean,
     params: strip(params),
     ...(withSeed ? { seed: params.seed } : {}),
-    ...(endYear ? { endYear } : {}),
     ...(rp.rules ? { rules: rp.rules } : {}),
   })}`;
   const copy = async () => {

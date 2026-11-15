@@ -35,7 +35,7 @@ export interface PluginWork {
 export type SubmitWork =
   | { kind: 'world'; worldId: string; title: string }
   | { kind: 'map'; worldId: string; title: string }
-  | { kind: 'preset'; name: string; params: WorldParams; endYear?: number; rules?: RuleSet }
+  | { kind: 'preset'; name: string; params: WorldParams; rules?: RuleSet }
   | { kind: 'rules'; rules: RuleSet }
   | { kind: 'plugin'; plugin: PluginWork };
 
@@ -50,7 +50,8 @@ export function workKey(w: SubmitWork): string {
   if (w.kind === 'world' || w.kind === 'map') return w.worldId;
   if (w.kind === 'rules') return `rules:${w.rules.id || fnv(JSON.stringify(w.rules))}`;
   if (w.kind === 'plugin') return `plugin:${w.plugin.id}:${w.plugin.sum}`;
-  return `preset:${fnv(JSON.stringify([w.params, w.endYear ?? null, w.rules ?? null]))}`;
+  // 中间那格空着:以前放推演年数,留着让同一套参数的记号不变
+  return `preset:${fnv(JSON.stringify([w.params, null, w.rules ?? null]))}`;
 }
 
 export const WORK_KIND_LABEL: Readonly<Record<SubmitKind, string>> = { world: '世界', map: '地图', preset: '新建参数', rules: '规则', plugin: '插件' };

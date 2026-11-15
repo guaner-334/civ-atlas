@@ -4,6 +4,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import type { PanelTarget } from '../../../plugin/types';
 import { getPlugin, listPlugins, removePlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { clearSelection, useSelection } from '../../civView';
 import { copyText } from '../../clipboard';
@@ -25,6 +26,7 @@ import { verdictOf } from '../verdict';
 import { BoxPick, cellsInBox } from './BoxPick';
 import { fileChosen, fileStrip, openText, saveNow, saveText, skipOpen, skipSave, type FileOpen, type StripText } from './toolFiles';
 import { PanelView } from './PanelView';
+import { panelGo } from './toolSteer';
 import { cancelPick, dismissRefusal, panelAction, pickBox, startTool, stopTool, toolRun, type ToolRun, type ToolTrouble } from './toolRun';
 import './tools.css';
 
@@ -126,7 +128,7 @@ export default function ToolsLayer(p: ToolsProps) {
   return (
     <>
       {menu && <ToolsMenu phone={p.phone} onStart={start} />}
-      {run && slot && createPortal(<ToolCard run={run} phone={p.phone} onAgain={() => (run.dev ? run.dev.again() : start(run.plugin))} />, slot)}
+      {run && slot && createPortal(<ToolCard run={run} phone={p.phone} go={(to) => panelGo(to, env.current.world, env.current.civ)} onAgain={() => (run.dev ? run.dev.again() : start(run.plugin))} />, slot)}
       {pick?.kind === 'box' &&
         stage &&
         createPortal(
@@ -274,7 +276,7 @@ function ToolsMenu({ phone, onStart }: { phone: boolean; onStart: (p: InstalledP
 // ---------------------------------------------------------------------------
 // 插件卡:头是网站的(插件改不了),下面是插件交来的面板;网站要说的话放在面板上面
 
-function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAgain: () => void }) {
+function ToolCard({ run, phone, go, onAgain }: { run: ToolRun; phone: boolean; go: (to: PanelTarget) => void; onAgain: () => void }) {
   const pl = run.plugin;
   const m = pl.current.manifest;
   const list = useMemo(() => [pl], [pl]);
@@ -325,7 +327,7 @@ function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAga
                 }
               />
             )}
-            {run.panel && <PanelView nodes={run.panel} act={panelAction} />}
+            {run.panel && <PanelView nodes={run.panel} act={panelAction} go={go} />}
             {run.phase === 'running' && <p className="plg-cfoot">{writes ? '这个插件能改你写的东西：改了顶上会说一声，能撤销。' : '这是插件算的，关掉就没了，世界不变。'}</p>}
           </>
         )}

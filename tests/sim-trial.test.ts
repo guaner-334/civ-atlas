@@ -69,6 +69,18 @@ describe('推演插件试跑', () => {
     expect(ran).toBe(r.civ);
   }, 180_000);
 
+  it('交数给后加的影响口(民变、一场仗打多久):认得、推得完,存成文件读回来接着推和一口气推的一样', async () => {
+    const code =
+      "civAtlas.sim({ act(turn) { const a = turn.influence('revolt.odds').fill(3); const b = turn.influence('war.length'); for (let i = 0; i < b.length; i++) b[i] = i % 2 ? 0.5 : 2; return { influences: { 'revolt.odds': a, 'war.length': b } }; } });\n";
+    const f = await simFile('more', { every: 10, influences: ['revolt.odds', 'war.length'] }, ['sim.events@1', 'sim.influence@1'], code);
+    const r = await trialSim(w, [f], box);
+    expect(r.error).toBeUndefined();
+    expect(r.sim.years).toBe(3000);
+    expect(r.civ!.simPlugins![0].influences!['war.length'].length).toBeGreaterThan(0);
+    expect(r.sim.stats.plugin).not.toEqual(r.sim.stats.official);
+    expect(r.sim.resumeSame).toBe(true);
+  }, 180_000);
+
   it('插件用全局变量记数:分段推的接不上一口气推的,算出错,说从哪年起不一样', async () => {
     const code = "let n = 0;\ncivAtlas.sim({ act(turn) { n++; const c = turn.influence('war.odds'); for (let i = 0; i < c.length; i++) c[i] = 1 + (n % 7) / 5; return { influences: { 'war.odds': c } }; } });\n";
     const f = await simFile('counter', { every: 1, influences: ['war.odds'] }, ['sim.events@1', 'sim.influence@1'], code);

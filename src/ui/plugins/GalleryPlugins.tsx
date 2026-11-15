@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { coverUrl, fetchWork, isWorkGone, loadGallery, reportWork, useGallery, wasReported, type GalleryWork } from '../../account/gallery';
 import { serverBase } from '../../account/server';
+import { permissionFooter, permissionLines } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PluginFileError } from '../../plugin/pluginFile';
 import { listPlugins, type InstalledPlugin } from '../../plugin/pluginStore';
 import { Dialog } from '../AccountDialogs';
@@ -410,7 +411,7 @@ export function PluginWorkDialog({
     <Dialog phone={phone} label={label} width={600} onClose={onClose} head={<span />} testId="gallery-plugin" className="gl-pdlg pw-dlg" inPlace={inPlace}>
       <div className="pw-scroll">
         <div className="gl-pcover pw-cover" style={cover ? { backgroundImage: `url("${cover}")` } : undefined}>
-          {seed !== undefined && <span className="pw-shot">审核时在种子 {seed} 上跑出来的样子</span>}
+          {seed !== undefined && <span className="pw-shot">在种子 {seed} 上试跑的样子</span>}
           {shots.length > 1 && (
             <span className="pw-dots">
               {shots.map((s, i) => (
@@ -419,6 +420,10 @@ export function PluginWorkDialog({
             </span>
           )}
           {close}
+        </div>
+        <div className="pw-band">
+          <Icon name="lock" size={15} />
+          <span>{permissionFooter(permissionLines(p), p.role)}</span>
         </div>
         <div className="acct-body">
           <div className="pw-title">
@@ -438,7 +443,7 @@ export function PluginWorkDialog({
           </div>
           {(w.blurb || p.description) && <p className="pw-blurb">{w.blurb || p.description}</p>}
           <div className="plg-sec">它要用到</div>
-          <Perms m={p} />
+          <Perms m={p} safe={false} />
           <div className="plg-sec">版本和文件</div>
           <div className="plg-grp plg-kv pw-kv" data-testid="plugin-versions">
             {vers.slice(0, phone ? 2 : 3).map((v, i) => (

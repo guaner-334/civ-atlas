@@ -18,7 +18,7 @@
  */
 import type { Civ, Person, Place, Polity } from '../gen/civ/types';
 import type { LoadRequest, WorkerRequest } from '../worker';
-import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, keptMapOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
+import { cleanCivSeed, cleanPlay, endParamOf, keptMapOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
 import { cleanCalamity } from '../gen/civ/calamity';
 import { worldTuning } from '../gen/civ/ruleSet';
@@ -58,8 +58,7 @@ export function helperJob(r: RenderRequest): HelperJob {
     const p = decodePresetHash(r.preset ?? '');
     if (!p.ok) throw new Error(`新建参数读不出来：${p.error}`);
     const params: WorldParams = { ...DEFAULT_PARAMS, ...p.preset.params, seed: p.preset.seed ?? DEFAULT_PARAMS.seed };
-    const endYear = cleanEndYear(p.preset.endYear);
-    return { kind: r.kind, params, input: { params, scale: 1, ...(endYear ? { endYear } : {}) } };
+    return { kind: r.kind, params, input: { params, scale: 1 } };
   }
   const p = parseSave(JSON.stringify(r.save ?? null));
   if (!p.ok) throw new Error(`存档读不出来：${p.error}`);

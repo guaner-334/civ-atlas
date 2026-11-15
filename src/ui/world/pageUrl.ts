@@ -1,13 +1,13 @@
 /**
  * 网址里记着的东西(App 用):
- *   readUrl       打开网页时读一次网址:世界参数、底图和填色、分享链接、作品墙、投影和经纬网、生成器版本、推演年数
+ *   readUrl       打开网页时读一次网址:世界参数、底图和填色、分享链接、作品墙、投影和经纬网、生成器版本
  *   writeViewUrl  换了底图 / 填色 / 卫星画法写进网址
  *   visitTarget   网址里带种子的世界(直接看,先不存)
  *   firstRoute    打开网页时去哪
  * 按后退 / 前进换画面、存下以后改写网址见 ./useRouteNav.ts
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
-import { EMPTY_EDITS, cleanEndYear } from '../../gen/edits';
+import { EMPTY_EDITS } from '../../gen/edits';
 import { GEN_KEY, PARAM_RANGE, decodeMomentHash, isContourKind, isMomentHash, isShareHash } from '../../gen/savefile';
 import { LAYERS, type LayerId } from '../../render/layers';
 import { wrapLon } from '../../render/projection';
@@ -19,7 +19,7 @@ import { isNavState, navUrl } from '../nav';
 import { isPresetHash } from '../presetLink';
 import { GLOBE_READY, isGraticuleStep, isMapProjection, type MapProjection } from '../projection';
 import { isWorldId, legacyWorld, loadWorld, newWorldId } from '../saveStore';
-import { draftTarget, storedTarget, yearsEdits, type FirstRoute, type Target } from './worldTarget';
+import { draftTarget, storedTarget, type FirstRoute, type Target } from './worldTarget';
 
 export function readUrl() {
   const q = new URLSearchParams(location.search);
@@ -70,10 +70,13 @@ export function readUrl() {
   // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
   const gq = q.get(GEN_KEY);
   const gen = gq === null ? null : /^\d{1,6}$/.test(gq) ? Number(gq) : 0;
-  // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
-  const yq = q.get('years');
-  const years = yq === null ? undefined : cleanEndYear(Number(yq));
-  return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, gallery, proj, lon, grat, iso, gen, years };
+  // 旧的新建网址里的推演年数(years=)不用了(新建一律先推 3000 年):写的是什么都不管,从地址栏去掉
+  if (q.has('years')) {
+    q.delete('years');
+    const rest = q.toString();
+    navUrl(`${rest ? `?${rest}` : location.pathname}${location.hash}`);
+  }
+  return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, gallery, proj, lon, grat, iso, gen };
 }
 
 /** 打开网页时从网址读出来的(readUrl) */
@@ -127,9 +130,9 @@ export function firstRoute(init: PageUrl): FirstRoute {
   // 这一步记的世界存着,网址是存下之前的那一版(开着卡片时改了第一笔才存下,退回来的这一步网址里还没有 w=):打开存着的
   const mine = !isWorldId(w) && isNavState(was) && was.page === 'world' && was.id ? loadWorld(was.id) : null;
   if (mine && !mine.draft) return { stage: 'world', target: storedTarget(mine, 'restore') };
-  if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params, null, yearsEdits(init.years)) };
+  if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
   // 照手绘图新建、还没照图长出星球(图不存,刷新就没了):回到我的世界,弹窗停在照手绘图的第 2 步(参数照网址)重新选图
-  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2, endYear: init.years } };
+  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2 } };
   if (q.has('seed')) {
     // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
     const old = init.gen === null ? legacyWorld(init.params) : null;

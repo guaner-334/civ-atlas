@@ -426,7 +426,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   /** 正在打开 / 已经打开的世界(生成完按它套上修改、交给自动存) */
   const targetRef = useRef<Target | null>(route.target);
   /**
-   * 新建中、照平常的规矩推历史(先推 3000 年、拓荒起源天灾按默认):照故事找世界选中的结果不算(它按自己的推演年数、拓荒、起源、天灾推,
+   * 新建中、照平常的规矩推历史(先推 3000 年、拓荒起源天灾按默认):照故事找世界选中的结果不算(它按自己的拓荒、起源、天灾推,
    * 和搜的时候一样,见 Target.fullCiv)
    */
   const plainDraft = () => getStage().stage === 'draft' && !targetRef.current?.fullCiv;

@@ -155,7 +155,7 @@ export function checkSimManifest(m: { sim?: unknown; requires: readonly string[]
   }
   if (s.listen !== undefined) for (const k of names(s.listen, '清单的 sim.listen', PLUGIN_LIMITS.listen)) if (!has(ANNAL_KINDS, k)) unknown('史事种类', k);
   if (s.layers !== undefined) checkLayers(s.layers, cards);
-  if (s.influences !== undefined) for (const k of names(s.influences, '清单的 sim.influences', 32)) if (!has(SIM_INFLUENCE_TEXT, k)) unknown('影响口', k);
+  if (s.influences !== undefined) for (const k of names(s.influences, '清单的 sim.influences', 64)) if (!has(SIM_INFLUENCE_TEXT, k)) unknown('影响口', k);
   if (s.commands !== undefined) for (const k of names(s.commands, '清单的 sim.commands', 32)) if (!has(SIM_COMMAND_TEXT, k)) unknown('命令', k);
   if (s.params !== undefined) checkParams(s.params, '清单的 sim.params');
 
