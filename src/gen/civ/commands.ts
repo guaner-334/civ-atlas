@@ -14,7 +14,7 @@ import { cultureModelOf } from './cultures';
 import { GROWTH_A, capitalAt, populationAt } from './growth';
 import { civApi } from './api';
 import { POLITICS_KNOBS } from './politics';
-import { treatyModelOf, type Zone } from './treaties';
+import { treatyModelOf, type Treaty, type Zone } from './treaties';
 import { warModelOf } from './wars';
 import { commandedList, interventionModelOf, issueCommands, type InterventionModel } from './interventions';
 
@@ -135,11 +135,28 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   /** 前面收下的立国、分裂立出来的新国:按州定位的键 → 编号(接着现有的国往后排,同推演里立国),编号 → 国都所在州 */
   const born = new Map<string, number>();
   const bornCap = new Map<number, number>();
-  /** 前面收下的立国、分裂一共立出几国;建了城的州;新划 / 新撤的中立地;新收下的永久划州 */
+  /** 前面收下的立国、分裂一共立出几国;建了城的州;在效的约与新划 / 新撤的中立地;新收下的永久划州 */
   let made = 0;
   const built = new Set<number>();
-  const zoned = new Map<number, number>();
+  const tm = treatyModelOf(sim);
+  interface ProjTreaty {
+    raw: Treaty | null;
+    parties: readonly number[];
+    hadZone: boolean;
+    zoneRegion: number;
+    ended: boolean;
+  }
+  const zoned = new Map<number, { owner: number; lasting: boolean }>();
   const unzoned = new Set<number>();
+  const liveTreaties: ProjTreaty[] = tm
+    ? tm.live.map((x) => ({
+        raw: x,
+        parties: x.parties,
+        hadZone: x.zone >= 0,
+        zoneRegion: x.zone >= 0 && tm.zones[x.zone].ended === undefined ? tm.zones[x.zone].region : -1,
+        ended: false,
+      }))
+    : [];
   const permCedes: { region: number; by: number }[] = [];
   const wm = warModelOf(sim);
   const settle = pm.knobs.get(POLITICS_KNOBS).SETTLE;
@@ -233,7 +250,30 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     if (r < 0 || o === by || (v.kind === 'cede' && !alive(by))) return null;
     return [o, r, by];
   };
-  const apply = (v: Intervention) => {
+  const isZone = (r: number) => zoned.has(r) || ((tm?.zoneAt[r] ?? -1) >= 0 && !unzoned.has(r));
+  const inTreaty = (pt: ProjTreaty, p: number) => !pt.ended && alive(p) && (pt.raw ? tm!.member(pt.raw, p) : pt.parties.includes(p));
+  const zoneOkProj = (r: number, ps: readonly number[]) => {
+    if (r < 0 || isZone(r) || lockedOf(r)) return false;
+    const o = ownerOf(r);
+    if (o >= 0 && !ps.includes(o)) return false;
+    const cap = o < 0 ? -1 : o < P.length ? (pm.settlements[capitalAt(P[o], t)]?.region ?? -1) : (bornCap.get(o) ?? -1);
+    return !(o >= 0 && cap === r);
+  };
+  const dropZoneAt = (r: number) => {
+    if (!tm) return;
+    let prev = -1;
+    if (zoned.has(r)) {
+      prev = zoned.get(r)!.owner;
+      zoned.delete(r);
+    } else if (tm.zoneAt[r] >= 0 && !unzoned.has(r) && tm.zones[tm.zoneAt[r]].ended === undefined) {
+      prev = tm.zones[tm.zoneAt[r]].owner;
+      unzoned.add(r);
+    } else return;
+    for (const pt of liveTreaties) if (pt.zoneRegion === r) pt.zoneRegion = -1;
+    const back = tm.backOf?.({ region: r, owner: prev } as Zone, ownerOf) ?? -1;
+    if (back >= 0 && alive(back)) move(r, back);
+  };
+  const apply = (v: Intervention, ivIdx: number) => {
     if (v.kind === 'destroy') {
       const a = who(v.a);
       const b = v.b !== undefined ? who(v.b) : -1;
@@ -247,8 +287,7 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
       if (r >= 0 && pm.terrain.habitable[r] && pm.cityOf[r] < 0) built.add(r);
       return;
     }
-    if (v.kind === 'neutral' || (v.kind === 'treaty' && v.zone !== undefined)) {
-      const tm = treatyModelOf(sim);
+    if (v.kind === 'treaty' || v.kind === 'neutral') {
       const a = who(v.a);
       if (!tm || !alive(a)) return;
       const others: number[] = [];
@@ -257,44 +296,50 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
         if (q >= 0 && q !== a && alive(q) && !others.includes(q)) others.push(q);
       }
       if (!others.length) return;
-      const r = regionOf(v.kind === 'neutral' ? v.region : v.zone!);
-      if (r < 0 || zoned.has(r) || (tm.zoneAt[r] >= 0 && !unzoned.has(r)) || lockedOf(r)) return;
+      const yes = v.ask ? others.filter((q) => a < P.length && q < P.length && !!tm.willing?.(a, q, t, ivIdx)) : others;
+      if (!yes.length) return;
+      const parties = [a, ...yes];
+      if (v.kind === 'treaty') {
+        const r = v.zone !== undefined ? regionOf(v.zone) : -1;
+        const z = zoneOkProj(r, parties) ? r : -1;
+        if (z >= 0) {
+          const o = ownerOf(z);
+          zoned.set(z, { owner: o, lasting: false });
+          if (o >= 0) move(z, -1);
+        }
+        liveTreaties.push({ raw: null, parties, hadZone: z >= 0, zoneRegion: z, ended: false });
+        return;
+      }
+      const r = regionOf(v.region);
+      if (!zoneOkProj(r, parties)) return;
       const o = ownerOf(r);
-      const cap = o < 0 ? -1 : o < P.length ? (pm.settlements[capitalAt(P[o], t)]?.region ?? -1) : (bornCap.get(o) ?? -1);
-      if ((o >= 0 && ![a, ...others].includes(o)) || (o >= 0 && cap === r)) return;
-      zoned.set(r, o);
-      unzoned.delete(r);
+      zoned.set(r, { owner: o, lasting: !!v.lasting });
       if (o >= 0) move(r, -1);
+      const x = liveTreaties.find((y) => !y.ended && !y.hadZone && parties.every((p) => inTreaty(y, p)));
+      if (x) {
+        x.hadZone = true;
+        x.zoneRegion = r;
+      } else liveTreaties.push({ raw: null, parties, hadZone: true, zoneRegion: r, ended: false });
       return;
     }
     if (v.kind === 'unzone' || v.kind === 'annul') {
       // 撤了的中立地(废约连带撤的也算)还给原主:后面在那州立国、划走照原主挡
-      const tm = treatyModelOf(sim);
       if (!tm) return;
       if (v.kind === 'unzone') {
         const r = regionOf(v.region);
-        if (r >= 0 && zoned.has(r)) {
-          const prev = zoned.get(r)!;
-          zoned.delete(r);
-          const back = tm.backOf?.({ region: r, owner: prev } as Zone, ownerOf) ?? -1;
-          if (back >= 0 && alive(back)) move(r, back);
-          return;
-        }
+        if (r >= 0) dropZoneAt(r);
+        return;
       }
-      const zs: number[] = [];
-      if (v.kind === 'unzone') {
-        const r = regionOf(v.region);
-        if (r >= 0 && tm.zoneAt[r] >= 0 && !unzoned.has(r)) zs.push(tm.zoneAt[r]);
-      } else {
-        const a = who(v.a);
-        const b = who(v.b);
-        for (const x of tm.live) if (a >= 0 && b >= 0 && x.zone >= 0 && !tm.zones[x.zone].lasting && !unzoned.has(tm.zones[x.zone].region) && tm.member(x, a) && tm.member(x, b)) zs.push(x.zone);
-      }
-      for (const z of zs) {
-        if (tm.zones[z].ended !== undefined) continue;
-        unzoned.add(tm.zones[z].region);
-        const back = tm.backOf?.(tm.zones[z], ownerOf) ?? -1;
-        if (back >= 0 && alive(back)) move(tm.zones[z].region, back);
+      const a = who(v.a);
+      const b = who(v.b);
+      if (a < 0 || b < 0 || a === b || !alive(a) || !alive(b)) return;
+      for (const x of liveTreaties) {
+        if (!inTreaty(x, a) || !inTreaty(x, b)) continue;
+        x.ended = true;
+        const r = x.zoneRegion;
+        if (r < 0) continue;
+        const lasting = zoned.has(r) ? zoned.get(r)!.lasting : tm.zoneAt[r] >= 0 && tm.zones[tm.zoneAt[r]].lasting;
+        if (!lasting) dropZoneAt(r);
       }
       return;
     }
@@ -333,7 +378,7 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     }
     move(r, by);
   };
-  for (const i of iv.commandsAt(t)) apply(iv.list[i]);
+  for (const i of iv.commandsAt(t)) apply(iv.list[i], i);
   const blocked = (v: Intervention): RefuseReason | null => {
     if (v.kind === 'destroy') {
       const a = who(v.a);
@@ -397,9 +442,10 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     }
     return null;
   };
+  let nextIv = iv.list.length;
   return list.map((v) => {
     const why = blocked(v);
-    if (!why) apply(v);
+    if (!why) apply(v, nextIv++);
     return why;
   });
 }

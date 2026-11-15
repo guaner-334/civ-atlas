@@ -517,6 +517,73 @@ describe('作者的干预挡下命令(新的几种挡法)', () => {
     expect(got.civ.polities[two].ended).not.toBe(y + 1 / 256);
   }, 60_000);
 
+  it('同一批先请别国共建中立地遭拒、再在国都立国:对方不肯不挪归属,不误挡', () => {
+    const { y, x: { two, vassalOther, cap, side } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const liege = relationsAt(base, y).liege;
+      const cities = new Set(base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y)).map((s) => s.region));
+      const ps = base.polities.filter((p) => lives(p.id, y));
+      for (const p of ps) {
+        if (liege.has(p.id)) continue;
+        const cs = [...own.keys()].filter((r) => own[r] === p.id && cities.has(r));
+        if (cs.length !== 2) continue;
+        const cap = base.settlements[capitalAt(p, y)].region;
+        const side = cs.find((r) => r !== cap);
+        const vassalOther = ps.find((q) => q.id !== p.id && liege.has(q.id) && liege.get(q.id)!.liege !== p.id);
+        if (side !== undefined && vassalOther) return { two: p.id, vassalOther: vassalOther.id, cap, side };
+      }
+      return undefined;
+    });
+    const guard: Intervention[] = [{ kind: 'protect', a: polityKey(base, two), from: y, fromTick: 1 }];
+    const got = run({ [y]: [{ kind: 'neutral', a: two, region: side, ps: [vassalOther], ask: true }, { kind: 'found', region: cap }] }, guard);
+    expect(told(got.log)).toEqual([]);
+    expect(got.took.map((v) => v.kind)).toEqual(['neutral', 'found']);
+    expect(got.civ.polities[two].ended).not.toBe(y + 1 / 256);
+    const viaTreaty = run({ [y]: [{ kind: 'treaty', a: two, ps: [vassalOther], zone: side, ask: true }, { kind: 'found', region: cap }] }, guard);
+    expect(told(viaTreaty.log)).toEqual([]);
+    expect(viaTreaty.took.map((v) => v.kind)).toEqual(['treaty', 'found']);
+    expect(viaTreaty.civ.polities[two].ended).not.toBe(y + 1 / 256);
+  }, 120_000);
+
+  it('同一批先划中立地再废约、再在国都立国:撤回原主的不误挡,一直留着的照不许灭挡', () => {
+    const reg = base.regions;
+    const isLand = (k: number) => k === AdjKind.Flat || k === AdjKind.River || k === AdjKind.Mountain;
+    const { y, x: { two, other, cap, side } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const liege = relationsAt(base, y).liege;
+      const cities = new Set(base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y)).map((s) => s.region));
+      const ps = base.polities.filter((p) => lives(p.id, y) && !liege.has(p.id));
+      for (const p of ps) {
+        const cs = [...own.keys()].filter((r) => own[r] === p.id && cities.has(r));
+        if (cs.length !== 2) continue;
+        const cap = base.settlements[capitalAt(p, y)].region;
+        const side = cs.find((r) => r !== cap);
+        if (side === undefined) continue;
+        let touchesRest = false;
+        for (let e = reg.adjStart[side]; e < reg.adjStart[side + 1]; e++) {
+          if (isLand(reg.adjKind[e]) && reg.adj[e] !== side && own[reg.adj[e]] === p.id) touchesRest = true;
+        }
+        const other = ps.find((q) => q.id !== p.id);
+        if (touchesRest && other) return { two: p.id, other: other.id, cap, side };
+      }
+      return undefined;
+    });
+    const guard: Intervention[] = [{ kind: 'protect', a: polityKey(base, two), from: y, fromTick: 1 }];
+    const restored = run(
+      { [y]: [{ kind: 'neutral', a: two, region: side, ps: [other] }, { kind: 'annul', a: two, b: other }, { kind: 'found', region: cap }] },
+      guard,
+    );
+    expect(told(restored.log)).toEqual([]);
+    expect(restored.took.map((v) => v.kind)).toEqual(['neutral', 'annul', 'found']);
+    expect(restored.civ.polities[two].ended).not.toBe(y + 1 / 256);
+    const lasting = run(
+      { [y]: [{ kind: 'neutral', a: two, region: side, ps: [other], lasting: true }, { kind: 'annul', a: two, b: other }, { kind: 'found', region: cap }] },
+      guard,
+    );
+    expect(told(lasting.log)).toEqual([{ year: y + 10, refused: [{ kind: 'found', index: 2, why: 'protect' }] }]);
+    expect(lasting.took.map((v) => v.kind)).toEqual(['neutral', 'annul']);
+  }, 120_000);
+
   it('插件结的盟经断盟或办成了的称臣解除以后,读历史的接口不再报', () => {
     const hasPair = (civ: Civ, year: number, a: number, b: number) =>
       historyRelations(civ, { year }).alliances.some((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a));
