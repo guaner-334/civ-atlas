@@ -54,7 +54,7 @@ interface TrialRunReply {
   log: string[];
   /** 推演插件不带 */
   did: Record<string, string>;
-  shots: { map?: string; panel?: string; views?: Record<string, { official?: string; plugin?: string }>; layers?: Record<string, string> };
+  shots: { map?: string; card?: string; panel?: string; views?: Record<string, { official?: string; plugin?: string }>; layers?: Record<string, string> };
   sim?: SimTrial;
   map?: MapTrial;
 }
@@ -229,8 +229,11 @@ async function trial(page: Page, name: string, bytes: Uint8Array, wait = WAIT): 
     if (!x.sim && !x.map) check(DID.every((k) => typeof x.did?.[k] === 'string' && x.did[k].length > 0 && [...x.did[k]].length <= 300), `${name}@${x.seed}:五项都有、300 字以内`);
     check(Array.isArray(x.log) && x.log.length <= 50 && x.log.every((l) => [...l].length <= 300), `${name}@${x.seed}:日志 50 条以内`);
     const mb = saveJpeg(`trial-${name}-${x.seed}-map`, x.shots.map);
+    const cb = saveJpeg(`trial-${name}-${x.seed}-card`, x.shots.card);
     const pb = saveJpeg(`trial-${name}-${x.seed}-panel`, x.shots.panel);
-    if (x.shots.map) check(mb <= 600 * 1024 && jpegSize(x.shots.map) === '1200×600', `${name}@${x.seed}:地图截图 1200×600、600 KB 以内(${(mb / 1024).toFixed(0)} KB)`);
+    if (x.shots.map) check(mb <= 600 * 1024 && jpegSize(x.shots.map) === '1200×600', `${name}@${x.seed}:详情图 1200×600、600 KB 以内(${(mb / 1024).toFixed(0)} KB)`);
+    check(!!x.shots.map === !!x.shots.card, `${name}@${x.seed}:详情图和封面一起交(都有或都没有)`);
+    if (x.shots.card) check(cb <= 600 * 1024 && jpegSize(x.shots.card) === '1200×600', `${name}@${x.seed}:封面 1200×600、600 KB 以内(${(cb / 1024).toFixed(0)} KB)`);
     if (x.shots.panel) check(pb <= 300 * 1024, `${name}@${x.seed}:面板截图 300 KB 以内(${jpegSize(x.shots.panel)},${(pb / 1024).toFixed(0)} KB)`);
   }
   for (const x of runs) {
@@ -245,7 +248,7 @@ async function trial(page: Page, name: string, bytes: Uint8Array, wait = WAIT): 
       check(b <= 200 * 1024 && jpegSize(url) === '600×300', `${name}@${x.seed}:图层 ${id} 600×300、200 KB 以内(${(b / 1024).toFixed(0)} KB)`);
     }
   }
-  const brief = (x: TrialRunReply) => ({ map: !!x.shots.map, panel: !!x.shots.panel, views: Object.keys(x.shots.views ?? {}), layers: Object.keys(x.shots.layers ?? {}) });
+  const brief = (x: TrialRunReply) => ({ map: !!x.shots.map, card: !!x.shots.card, panel: !!x.shots.panel, views: Object.keys(x.shots.views ?? {}), layers: Object.keys(x.shots.layers ?? {}) });
   writeFileSync(path.join(OUT, `trial-${name}.json`), JSON.stringify(runs.map((x) => ({ ...x, shots: brief(x) })), null, 2));
   return runs;
 }

@@ -56,7 +56,7 @@ function lineLook(s?: MarkStyle): { line: number; edge: number; dash: [number, n
 }
 
 /** 时间轴在 year 这一年时画不画这一项(year 没有 = 世界还没有历史,都画) */
-const shownAt = (it: MarkLayerItem, year: number | undefined) => year === undefined || ((it.from === undefined || year >= it.from) && (it.to === undefined || year <= it.to));
+export const shownAt = (it: MarkLayerItem, year: number | undefined) => year === undefined || ((it.from === undefined || year >= it.from) && (it.to === undefined || year <= it.to));
 
 /** 一项的世界坐标(x 按前一个点展开成连着的,东西两头相连时不绕一大圈) */
 function worldPts(it: MarkLayerItem, mesh: Mesh): Float64Array {

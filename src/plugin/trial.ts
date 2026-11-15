@@ -358,6 +358,11 @@ export class TrialRecorder {
     return [...this.layers.values()].filter((l): l is MarkLayer => l.kind === 'marks');
   }
 
+  /** 真替它点了的城、框了的一片(出图时标出来) */
+  handed(): { cities: TrialCity[]; box: TrialBox | null } {
+    return { cities: this.picks.cities.slice(0, this.answered.length), box: this.boxed ? this.picks.box : null };
+  }
+
   did(): TrialDid {
     return { got: trialLine(this.gotText()), picked: trialLine(this.pickedText()), drew: trialLine(this.drewText()), wrote: trialLine(this.wroteText()), said: trialLine(this.saidText()) };
   }
