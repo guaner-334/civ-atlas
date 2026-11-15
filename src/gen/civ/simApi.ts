@@ -56,7 +56,7 @@ export const SIM_API = 1;
  */
 export const SIM_CAPS = {
   [SIM_READ]: { parts: ['turn.read', 'turn.heard', 'listen'], steer: false },
-  'sim.tables@1': { parts: ['tables', 'inputs', 'layers', 'turn.table', 'reply.tables'], steer: false },
+  'sim.tables@1': { parts: ['tables', 'inputs', 'layers', 'columns', 'turn.table', 'turn.column', 'reply.tables', 'reply.columns'], steer: false },
   'sim.events@1': { parts: ['every', 'turn.events', 'reply.at'], steer: false },
   'sim.chronicle@1': { parts: ['reply.chronicle'], steer: false },
   'sim.state@1': { parts: ['turn.note', 'reply.note'], steer: false },

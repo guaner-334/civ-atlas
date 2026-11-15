@@ -1,5 +1,6 @@
 /**
- * 推演插件的图层:插件按州记的一张表(的一栏)标成图层,每隔 keep 年存一份,存进历史(Civ.simLayers);
+ * 推演插件的图层:插件按州或按国记的一张表(的一栏)标成图层,每隔 keep 年存一份,存进历史(Civ.simLayers);
+ * 按国的表存的那一刻照归属摊成按州的一份(不归哪国的州不画),所以存下的都是按州的。
  * 世界文件里各是一块 layer.<插件编号>.<图层编号>(worldFormat.ts 的 PluginLayerValue),看世界不需要插件。
  */
 import { colCount, type TableCard } from './tables';
@@ -23,7 +24,7 @@ export type LayerLookCheck = (spec: SimLayerSpec) => SimLayerLook;
 export interface SimLayerSpec extends SimLayerLook {
   /** 图层编号(小写字母、数字、连字符,最长 25 个字) */
   id: string;
-  /** 哪张表:按州记的、记数的;多栏的表要给栏名 */
+  /** 哪张表:按州或按国记的、记数的;多栏的表要给栏名 */
   table: string;
   col?: string;
   /** 每隔几年存一份(整数年,从第 0 年起) */
@@ -53,6 +54,8 @@ export class LayerRun {
   readonly keep: number;
   private readonly col: number;
   private readonly cols: number;
+  /** 按国的表:没有值的国(表还没算到的新国)取这个数;按州的表 = undefined */
+  private readonly polityOff: number | undefined;
   private readonly look: SimLayerLook;
   private years: number[] = [];
   private frames: Float32Array[] = [];
@@ -67,7 +70,8 @@ export class LayerRun {
     const s = spec;
     if (typeof s.id !== 'string' || !LAYER_ID.test(s.id)) throw new Error(`图层编号 ${String(s.id)} 只能有小写字母、数字和连字符,最长 25 个字`);
     if (!card) throw new Error(`图层 ${s.id} 的表 ${String(s.table)} 没有`);
-    if (card.unit !== 'region' || card.kind === 'id') throw new Error(`图层 ${s.id} 的表 ${card.id} 要按州记数`);
+    if ((card.unit !== 'region' && card.unit !== 'polity') || card.kind === 'id') throw new Error(`图层 ${s.id} 的表 ${card.id} 要按州或按国记数`);
+    this.polityOff = card.unit === 'polity' ? card.off : undefined;
     this.cols = colCount(card);
     this.col = s.col === undefined ? (this.cols === 1 ? 0 : -1) : (card.cols ?? []).indexOf(s.col);
     if (this.col < 0) throw new Error(`图层 ${s.id} 要给表 ${card.id} 的一栏`);
@@ -80,12 +84,18 @@ export class LayerRun {
     }
   }
 
-  /** 存一份:data = 那张表此刻的值(格 × 栏);超出单精度能存的压到最大最小,不变成无穷大 */
-  keepFrame(year: number, data: Float64Array): void {
-    const n = data.length / this.cols;
+  /** 存一份:data = 那张表此刻的值(格 × 栏),owner = 此刻各州归哪国(按国的表才用);超出单精度能存的压到最大最小,不变成无穷大 */
+  keepFrame(year: number, data: Float64Array, owner: ArrayLike<number>): void {
+    const off = this.polityOff;
+    const n = off === undefined ? data.length / this.cols : owner.length;
     if ((this.years.length + 1) * n * 4 > LAYER_LIMITS.bytes) throw new Error(`图层 ${this.spec.id} 存的太多(每 ${this.spec.keep} 年一份、${n} 个州),把 keep 调大`);
     const f = new Float32Array(n);
-    for (let r = 0; r < n; r++) f[r] = Math.max(-F32_MAX, Math.min(F32_MAX, data[r * this.cols + this.col]));
+    const P = data.length / this.cols;
+    for (let r = 0; r < n; r++) {
+      const p = off === undefined ? r : owner[r];
+      const v = p < 0 ? NaN : p < P ? data[p * this.cols + this.col] : off!;
+      f[r] = Math.max(-F32_MAX, Math.min(F32_MAX, v));
+    }
     this.years.push(year);
     this.frames.push(f);
   }

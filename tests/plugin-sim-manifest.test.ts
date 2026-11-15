@@ -49,11 +49,23 @@ describe('推演插件的清单', () => {
     expect(p.manifest.sim).toEqual({});
   });
 
-  it('好样本的 sim 段直接交给推演跑得起来:表、输入表、图层、影响口都接得上', () => {
+  it('好样本的 sim 段直接交给推演跑得起来:表、输入表、图层、影响口、数据栏都接得上', () => {
     const civ = generateCiv(worldOf(), { endYear: 60, plugins: [pluginOf(goodSim())] });
     expect(civ.stuck).toBeUndefined();
     expect(civ.simLayers?.map((l) => [l.by, l.id, l.years])).toEqual([['magic', 'magic', [0, 50]]]);
     expect(Object.keys(civ.simPlugins![0].tables!.tables).sort()).toEqual(['awe', 'magic', 'unrest_in', '国']);
+    expect(Object.keys(civ.simPlugins![0].columns!)).toEqual(['ward']);
+  });
+
+  it('按国的表也能标成图层', () => {
+    const s = goodSim();
+    s.layers!.push({ ...s.layers![0], id: 'awe', table: 'awe' });
+    expect(checkSimManifest({ sim: s, requires: requires() })).toBeNull();
+    const civ = generateCiv(worldOf(), { endYear: 60, plugins: [pluginOf(s)] });
+    expect(civ.simLayers?.map((l) => [l.id, l.unit])).toEqual([
+      ['magic', 'region'],
+      ['awe', 'region'],
+    ]);
   });
 
   const bad: [string, (s: any) => void, RegExp][] = [
@@ -65,7 +77,11 @@ describe('推演插件的清单', () => {
     ['输入表和官方表的单位不一样', (s) => (s.inputs.unrest_in = 'rural'), /单位/],
     ['接官方表的不是输入表', (s) => (s.inputs = { magic: 'rural' }), /输入表/],
     ['图层的 keep 不对', (s) => (s.layers[0].keep = 0), /keep/],
-    ['图层标按国记的表', (s) => (s.layers[0].table = 'awe'), /按州/],
+    ['图层标全世界一个数的表', (s) => (s.tables.push({ id: 'tally', name: '记数', unit: 'world', input: true, min: 0, max: 1, off: 0 }), (s.layers[0].table = 'tally')), /按州或按国/],
+    ['数据栏按州记', (s) => (s.columns[0].unit = 'region'), /unit 只能是 settlement、culture、faith/],
+    ['数据栏和表重名', (s) => (s.columns[0].id = 'magic'), /重名/],
+    ['数据栏的上下限反了', (s) => ((s.columns[0].min = 5), (s.columns[0].max = 1)), /上下限/],
+    ['数据栏超过 16 栏', (s) => s.columns.push(...Array.from({ length: 16 }, (_, i) => ({ id: `c${i}`, unit: 'culture', min: 0, max: 1, off: 0 }))), /16/],
     ['图层的颜色没给', (s) => delete s.layers[0].ramp, /ramp/],
     ['表超过 16 张', (s) => s.tables.push(...Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, name: `t${i}`, unit: 'world', min: 0, max: 1, off: 0, rule: '0' }))), /16/],
   ];
