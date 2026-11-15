@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import { getPlugin, listPlugins, removePlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { clearSelection, useSelection } from '../../civView';
 import { copyText } from '../../clipboard';
+import { downloadBlob } from '../../filmStore';
 import { useCoarse } from '../../device';
 import { noteDismiss } from '../../dismissClick';
 import { Icon } from '../../icons';
@@ -22,6 +23,7 @@ import { isTool, versionLabel } from '../pluginText';
 import { setToolCloser, toolSlot, toolsMenu, type ToolsProps } from '../toolsState';
 import { verdictOf } from '../verdict';
 import { BoxPick, cellsInBox } from './BoxPick';
+import { fileChosen, fileStrip, openText, saveNow, saveText, skipOpen, skipSave, type FileOpen, type StripText } from './toolFiles';
 import { PanelView } from './PanelView';
 import { cancelPick, dismissRefusal, panelAction, pickBox, startTool, stopTool, toolRun, type ToolRun, type ToolTrouble } from './toolRun';
 import './tools.css';
@@ -305,6 +307,7 @@ function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAga
           <Trouble t={t} label={label} onAgain={onAgain} onRemove={() => void removePlugin(pl.id).finally(stopTool)} />
         ) : (
           <>
+            <FileStrips phone={phone} />
             {run.refusal && (
               <Msg
                 icon={<Icon name="warn" size={phone ? 20 : 19} />}
@@ -331,6 +334,73 @@ function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAga
   );
 }
 
+/** 网站替插件问用的人:存文件、选文件(放在插件面板上面,往下滚时钉在最上面) */
+function FileStrips({ phone }: { phone: boolean }) {
+  const { save, open } = fileStrip.use();
+  return (
+    <>
+      {save && <Strip t={saveText(save, phone)} kind="save" onSkip={skipSave} onGo={() => saveNow(downloadBlob)} />}
+      {open && <OpenStrip o={open} />}
+    </>
+  );
+}
+
+function OpenStrip({ o }: { o: FileOpen }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const ask = o.phase === 'ask';
+  // 在电脑的选文件框里取消:当用的人不给
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !ask) return;
+    el.addEventListener('cancel', skipOpen);
+    return () => el.removeEventListener('cancel', skipOpen);
+  }, [ask]);
+  return (
+    <Strip t={openText(o)} kind="open" onSkip={skipOpen} onGo={() => ref.current?.click()}>
+      {ask && (
+        <input
+          ref={ref}
+          type="file"
+          hidden
+          accept={o.req.accept.map((e) => `.${e}`).join(',') || undefined}
+          data-testid="plugin-open-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) void fileChosen(f);
+            else skipOpen();
+          }}
+        />
+      )}
+    </Strip>
+  );
+}
+
+function Strip({ t, kind, onSkip, onGo, children }: { t: StripText; kind: 'save' | 'open'; onSkip: () => void; onGo: () => void; children?: ReactNode }) {
+  return (
+    <div className={`plg-newer plg-file${t.tone === 'ask' ? '' : ` ${t.tone}`}`} data-testid={`plugin-${kind}`} data-tone={t.tone} role="status">
+      <div className="plg-newer-t">
+        <Icon name={t.icon} size={18} />
+        <span>
+          <b>{t.title}</b>
+          <small>{t.small}</small>
+        </span>
+      </div>
+      {t.acts && (
+        <div className="plg-newer-b">
+          <button type="button" className="plg-btn" data-act={`plugin-${kind}-skip`} onClick={onSkip}>
+            {t.acts[0]}
+          </button>
+          <button type="button" className="plg-btn pri" data-act={`plugin-${kind}-go`} onClick={onGo}>
+            {t.acts[1]}
+          </button>
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
 function Trouble({ t, label, onAgain, onRemove }: { t: ToolTrouble; label: string; onAgain: () => void; onRemove: () => void }) {
   if (t.kind === 'slow')
     return (
@@ -347,6 +417,24 @@ function Trouble({ t, label, onAgain, onRemove }: { t: ToolTrouble; label: strin
             </button>
             <button type="button" className="plg-btn pri" data-act="plugin-again" onClick={onAgain}>
               再试一次
+            </button>
+          </>
+        }
+      />
+    );
+  if (t.kind === 'gone')
+    return (
+      <Msg
+        icon={<Icon name="flask" size={19} />}
+        tone="warn"
+        title="它用的实验接口，网站已经改掉了"
+        lines={[`它用到「${t.what}」，这一版网站不再有。要等作者出新版，才能再用。`]}
+        small="更新网站没有用。你的世界没受影响，用它做过的图层还在。"
+        acts={
+          <>
+            <CopyButton text={`${label}用的实验接口「${t.what}」，网站已经改掉了，要出新版才能再用。`} />
+            <button type="button" className="plg-btn pri" data-act="plugin-close" onClick={stopTool}>
+              知道了
             </button>
           </>
         }

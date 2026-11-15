@@ -12,7 +12,7 @@
  * 没有地形修改、没有草图时结果逐字节不变。
  */
 import type { ReaderVersions } from './readers/versions';
-import { blurField, buildMesh, type Mesh } from './mesh';
+import { blurField, buildMesh, components, type Mesh } from './mesh';
 import { buildTectonics, type Tectonics } from './tectonics';
 import { erodeSteps, drainage, accumulate } from './erosion';
 import { computeClimate, type ClimateParams } from './climate';
@@ -205,6 +205,13 @@ function addToFrames(frames: readonly Float32Array[], before: Float32Array, afte
   for (let i = 0; i < after.length; i++) if (after[i] !== before[i]) changed.push(i);
   if (!changed.length) return;
   for (const fr of frames) for (const i of changed) fr[i] += after[i] - before[i];
+}
+
+/** 标过的地块(非 0)并成一张 0 / 1 */
+function editedMask(n: number, ...marks: (ArrayLike<number> | null | undefined)[]): Uint8Array {
+  const out = new Uint8Array(n);
+  for (const m of marks) if (m) for (let i = 0; i < n; i++) if (m[i]) out[i] = 1;
+  return out;
 }
 
 /** 陆地最高处(米;没有陆地 = 0) */
@@ -470,7 +477,11 @@ function* growTerrain(
   }
   if (hasStage(plugins, 'height')) {
     const before = elevation.slice();
-    heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate, (pl, st) => progress(mapStageNote(pl, st), 0.6));
+    heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate, (pl, st) => progress(mapStageNote(pl, st), 0.6), {
+      tect,
+      params: p,
+      edited: () => editedMask(n, touched, skTouched),
+    });
     addToFrames(history, before, elevation);
   }
   const top = planet ? planet.peak : landPeak(land, elevation);
@@ -605,21 +616,7 @@ export function* generateWorldSteps(
   const maxLake = Math.max(40, Math.round(highLand * 0.004));
   // 照图原样:图上是陆地的地方不另长湖
   const drawnLand = sk?.trace ? sketchCells(mesh, sk.grid) : null;
-  const seen = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    if (water[i] !== 2 || seen[i]) continue;
-    const comp = [i];
-    seen[i] = 1;
-    for (let q = 0; q < comp.length; q++) {
-      const c = comp[q];
-      for (let k = mesh.adjStart[c]; k < mesh.adjStart[c + 1]; k++) {
-        const j = mesh.adj[k];
-        if (water[j] === 2 && !seen[j]) {
-          seen[j] = 1;
-          comp.push(j);
-        }
-      }
-    }
+  for (const comp of components(mesh, water.map((x) => (x === 2 ? 1 : 0)))) {
     const drawn = !!drawnLand && comp.some((c) => drawnLand[c] >= SKETCH_LAND);
     if ((comp.length > maxLake || drawn) && !(userLake && comp.some((c) => userLake[c])) && !(painted && comp.some((c) => painted[c]))) {
       for (const c of comp) {
@@ -630,7 +627,7 @@ export function* generateWorldSteps(
   }
   // 湖心的小块地(周围全是湖水):不成州,淹成湖(湖面高度取周围湖水的最高处,湖底比水面低一点)。
   // 上面填平的湖也是陆地了,重新走一遍
-  seen.fill(0);
+  const seen = new Uint8Array(n);
   const islet = Math.max(1, Math.round((LAKE_ISLET * n) / 36000));
   for (let i = 0; i < n; i++) {
     if (water[i] !== 0 || seen[i]) continue;
@@ -692,7 +689,17 @@ export function* generateWorldSteps(
   progress('风与降水', 0.72);
   const currents = computeCurrents(mesh, water);
   const clim = computeClimate(mesh, elevation, water, climateP, currents, true);
-  if (hasStage(mapPlugins, 'climate')) climateHooks(mapPlugins, mesh, p.seed, { ...clim, elevation, water, rainSummer: clim.rainSummer!, rainWinter: clim.rainWinter! }, (pl, st) => progress(mapStageNote(pl, st), 0.76));
+  const edited = () => editedMask(n, touched, tect.sketchTouched, painted, userLake, userRiver);
+  if (hasStage(mapPlugins, 'climate')) {
+    climateHooks(
+      mapPlugins,
+      mesh,
+      p.seed,
+      { ...clim, elevation, water, rainSummer: clim.rainSummer!, rainWinter: clim.rainWinter! },
+      (pl, st) => progress(mapStageNote(pl, st), 0.76),
+      { tect, params: p, edited, currents },
+    );
+  }
   // 改地形:作者涂的更湿 / 更干 / 更暖 / 更冷
   if (ops.length) applyClimatePens(mesh, clim.temperature, clim.precipitation, ops);
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
@@ -793,7 +800,17 @@ export function* generateWorldSteps(
       flux,
       riverThreshold,
       rivers,
-    }, (pl, st) => progress(mapStageNote(pl, st), 0.92));
+    }, (pl, st) => progress(mapStageNote(pl, st), 0.92), {
+      tect,
+      params: p,
+      edited,
+      currents,
+      downstream: route.receiver,
+      fillLevel: pool.filled,
+      runoff,
+      wetland: wet,
+      maxElevation,
+    });
     if (mapLayers.length) world.mapLayers = mapLayers;
   }
   return world;
