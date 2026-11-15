@@ -14,6 +14,9 @@ import { simRead } from '../src/gen/civ/simRead';
 import { effOf, polityModelOf } from '../src/gen/civ/polities';
 import { goalOf, lengthOf, warModelOf } from '../src/gen/civ/wars';
 import type { Annal } from '../src/gen/civ/types';
+import { PLAGUE_IV } from '../src/gen/civ/calamity';
+import { populationAt } from '../src/gen/civ/growth';
+import { settlementKey } from '../src/gen/edits';
 import { mulberry32, subSeed } from '../src/gen/util';
 import { civDiff } from '../scripts/lib/resumeFuzz';
 import { POLITY_MORE, REGION_MORE, parity, steady, swayMore } from './lib/influencePlugins';
@@ -178,6 +181,18 @@ describe('第二批按州的影响口:往对的方向推(推 3000 年)', () => {
       expect(count(generateCiv(w, { plugins: [steady('p', { 'ruin.odds': 0 }, 5)] }), 'ruin'), `seed ${seed} ruin.odds`).toBe(0);
     }
   }, 180_000);
+
+  it('瘟疫传开只管自己起的:作者下的瘟疫照样往外传', () => {
+    const w = worldOf(7);
+    const plugins = [steady('p', { 'plague.spread': 0 }, 5)];
+    const zero = generateCiv(w, { plugins, endYear: 1300 });
+    let city = -1;
+    for (const s of zero.settlements) if (s.ended === undefined && (city < 0 || populationAt(s, 1300) > populationAt(zero.settlements[city], 1300))) city = s.id;
+    const c = generateCiv(w, { plugins, interventions: [{ kind: 'disaster', type: 'plague', level: 3, from: 1300, city: settlementKey(zero, city) }] });
+    const hit = c.annals.filter((e) => e.kind === 'plague' && e.war === PLAGUE_IV).reduce((n, e) => n + e.b, 0);
+    expect(hit).toBeGreaterThan(1);
+    expect(outbreakSizes(c).filter((n) => n > 1)).toEqual([hit]);
+  }, 60_000);
 
   it('交 4:洗劫、饥荒、民族分化、大迁徙都多了;守这一州 ×4 攻下的州少、×¼ 多', () => {
     const more: [string, (c: Civ) => number][] = [

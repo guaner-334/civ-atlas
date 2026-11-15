@@ -65,7 +65,7 @@ export const OFFICIAL_INFLUENCES: readonly InfluencePoint[] = [
   { id: 'rebuild.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
   /** 守这一州的兵力倍数(谁守都乘;打仗时挑打谁、打哪州估的胜率也跟着变) */
   { id: 'defense.power', unit: 'region', op: 'mul', min: 0.25, max: 4 },
-  /** 自己起的瘟疫传进这一州的几率(全球大疫不算) */
+  /** 自己起的瘟疫传进这一州的几率(作者、插件下的瘟疫和全球大疫不算) */
   { id: 'plague.spread', unit: 'region', op: 'mul', min: 0, max: 4 },
   /** 饥荒:这一州成为灾年中心、被饥荒波及的几率(折损多少照旧) */
   { id: 'famine.odds', unit: 'region', op: 'mul', min: 0, max: 4 },

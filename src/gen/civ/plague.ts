@@ -386,7 +386,7 @@ function hook(sim: CivSim, pl: PlagueModel, calamity: Calamity | undefined): voi
       return;
     }
     const dense = Math.max(DENSE_MIN, Math.min(1, pop / DENSE));
-    const spreadIn = sim.influence?.get('plague.spread');
+    const spreadIn = ob.level ? null : sim.influence?.get('plague.spread');
     for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
       const j = reg.adj[e];
       if (j >= R || ob.hit[j]) continue;
