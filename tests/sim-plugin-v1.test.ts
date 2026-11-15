@@ -111,6 +111,20 @@ describe('接口第 1 版:名字定下来', () => {
       'dynasty.odds': true,
       'plague.odds': true,
       'plague.loss': true,
+      'revolt.odds': true,
+      'collapse.odds': true,
+      'claim.odds': true,
+      'warlord.odds': true,
+      'merge.odds': true,
+      'restore.odds': true,
+      'alliance.odds': true,
+      'submit.odds': true,
+      'defect.odds': true,
+      'treaty.odds': true,
+      'marry.odds': true,
+      'aid.odds': true,
+      'war.length': true,
+      'war.goal': true,
     };
     expect(Object.keys(names).sort()).toEqual([...INFLUENCE_NAMES].sort());
     const kinds: Record<SimCommand['kind'], true> = { declare: true, ally: true, treaty: true, cede: true, found: true, move: true, destroy: true, disaster: true, trek: true };

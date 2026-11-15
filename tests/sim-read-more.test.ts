@@ -84,9 +84,9 @@ describe('读口后加的几样和推演此刻一样', () => {
       expect(ps[x.a].wars).toContain(x.b);
       expect(ps[x.b].wars).toContain(x.a);
       const eff = effOf(pm, x.a, T);
-      const len = lengthOf(wm, wm.wars[x.id]) * eff.war;
+      const len = lengthOf(wm, wm.wars[x.id], null) * eff.war;
       if (civil.has(x.id)) expect([x.goal, x.length]).toEqual([undefined, wm.k.REVOLT_LENGTH * len]);
-      else expect([x.goal, x.length]).toEqual([Math.max(1, goalOf(wm, wm.wars[x.id]) + eff.goal), len]);
+      else expect([x.goal, x.length]).toEqual([Math.max(1, goalOf(wm, wm.wars[x.id], null) + eff.goal), len]);
       expect(x.length! > 0 && (x.goal === undefined || (Number.isInteger(x.goal) && x.goal >= 1))).toBe(true);
     }
     const active = got.filter((x) => x.end === undefined).length;
