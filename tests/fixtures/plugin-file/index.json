@@ -397,12 +397,12 @@
   {
     "file": "sim-tables-too-many.civplugin",
     "kind": "broken",
-    "why": "表超过 16 张"
+    "why": "表超过 32 张"
   },
   {
     "file": "sim-table-cols.civplugin",
     "kind": "broken",
-    "why": "表的栏加起来超过 64"
+    "why": "表的栏加起来超过 128"
   },
   {
     "file": "sim-inputs-not-input.civplugin",

@@ -23,7 +23,7 @@ const PLUGIN_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const PLUGIN_ID_MAX = 32;
 
 /** 一个世界最多几个推演插件、每个插件最多几张表几栏、同时约着几件事、一件事带几个数、小本子多大多深、一次出手下几条命令、几栏数据 */
-export const PLUGIN_LIMITS = { plugins: 4, tables: 16, cols: 64, pending: 4096, data: 16, note: 64 * 1024, depth: 8, listen: 64, commands: 64, columns: 16 } as const;
+export const PLUGIN_LIMITS = { plugins: 4, tables: 32, cols: 128, pending: 4096, data: 16, note: 1024 * 1024, depth: 8, listen: 64, commands: 256, columns: 16 } as const;
 
 /** 插件按国记的表用这张表对上州 → 国(插件自己的表不能叫这个名字) */
 const OWNER_TABLE = '国';

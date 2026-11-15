@@ -8,7 +8,7 @@ export const CHRONICLE_REFS = { 国: 'polity', 州: 'region', 城: 'settlement',
 export type ChronicleRefKind = (typeof CHRONICLE_REFS)[keyof typeof CHRONICLE_REFS];
 
 /** 一句最多几个字(不算占位符)、几个占位符;一个插件在一个世界里最多写几句 */
-export const CHRONICLE_LIMITS = { chars: 80, refs: 8, lines: 2000 } as const;
+export const CHRONICLE_LIMITS = { chars: 80, refs: 8, lines: 10000 } as const;
 
 /** 插件交的一句 */
 export interface PluginChronicle {

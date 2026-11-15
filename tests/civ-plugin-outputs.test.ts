@@ -210,7 +210,7 @@ describe('推演插件写的编年史、标的图层:写错了', () => {
       [[{ text: '亡', refs: [0] }], /refs 要是一个对象/],
       [['亡'], /对象/],
       [{ text: '亡' }, /chronicle 要是一个数组/],
-      [Array.from({ length: 2001 }, () => ({ text: '又一年' })), /最多写 2000 句/],
+      [Array.from({ length: 10001 }, () => ({ text: '又一年' })), /最多写 10000 句/],
     ];
     for (const [chronicle, msg] of cases) {
       const run = startCiv(w, { endYear: 100, plugins: [writer(chronicle)] });
