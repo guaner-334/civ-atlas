@@ -230,6 +230,8 @@ describe('数据栏写错了', () => {
     expect(bad([{ ...ok, id: '1x' }])).toThrow(/数据栏的名字/);
     expect(bad([{ ...ok, id: 'a b' }])).toThrow(/数据栏的名字/);
     expect(bad([ok, ok])).toThrow(/重名/);
+    // 存进世界时当对象的键,这几个名字存不下
+    for (const id of ['constructor', 'prototype', '__proto__']) expect(bad([{ ...ok, id }])).toThrow(/数据栏不能叫/);
     expect(bad([ok], [{ id: 'walls', name: '城防', unit: 'world', input: true, min: 0, max: 1, off: 0 }])).toThrow(/重名/);
     expect(bad([{ ...ok, unit: 'region' }])).toThrow(/unit 只能是 settlement、culture、faith/);
     expect(bad([{ ...ok, min: 5, max: 1 }])).toThrow(/上下限/);
