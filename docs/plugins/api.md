@@ -87,6 +87,9 @@ if (caps.includes('history.read@1')) { /* 用历史 */ }
 | `biome` | Uint8Array | 生物群落编号,名字用 `world.legend({ kind: 'biome' })` 查 |
 | `flux` | Float32Array | 径流量(从上游累计下来的) |
 | `seaIce` | Float32Array | 海冰,0–1 |
+| `plate` | Int16Array | 属于第几块板块,板块的漂移见 `world.plates()` |
+| `currentX`、`currentY` | Float32Array | 洋流的表层流向:单位方向 × 强弱(0–1),往东、往南(地图上往下)是正的;陆地、湖是 0 |
+| `currentTemp` | Float32Array | 洋流让水温高了几度(°C,暖流正、寒流负);陆地、湖是 0 |
 
 ### `world.neighbors()`
 
@@ -107,6 +110,10 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 ### `world.legend({ kind })`
 
 `kind` 是 `'biome'` 或 `'water'`,返回 `[{ value, name }]`:编号对应的名字。
+
+### `world.plates()`
+
+板块,有地块的每块一项 `PlateInfo`:`id`(`world.cells` 的 `plate` 里的数)、`continental`(大陆板块 `true`、大洋板块 `false`)、`cells`(几个地块)、`x`、`y`(重心,世界坐标)、`dir`(重心处往哪边漂,度,0 北、90 东)、`speed`(每年漂几厘米)。
 
 ## 历史(`history.read@1`)
 
@@ -151,6 +158,97 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 返回 `{ items, total, next }`:`next` 是下一页的 `offset`,取完了是 `null`。每项 `PersonInfo`:`id`、`key`、`name`、`role`、`polity`、`born`、`died?`、`from?`(君主即位、名臣入仕)、`until?`、`title?`、`female?`。
 
+世系、婚姻(都是人物编号,没有就不给):`parent?`(父亲;君主、宗室按世系,将门、世家的将领、名臣是本国先前的一位;女的父辈也记在这里)、`adopted?`(`parent` 是养父)、`mom?`(母亲:联姻嫁来的宗室女所生、临朝太后所辅的幼主才有)、`husband?`(后妃的丈夫)、`spouses?`(联姻娶的宗室女,按先后,每项 `{ polity, father, year, person? }`:她出自哪国、她的父亲(没有 = −1)、结亲那年、她本人)、`dynasty?`(君主、名臣是第几朝,对得上 `history.dynasties()` 的 `index`)、`descent?`(复国之君:`{ from, gen }`,出自故国哪位君主、是他的第几代孙,1 子、2 孙……)。
+
+```js
+// 编号 rulerId 的君主往上数三代(复国之君的父辈在故国,所以不按国家筛)
+const all = [];
+for (let next = 0; next !== null; ) {
+  const pg = await civAtlas.history.people({ offset: next });
+  all.push(...pg.items);
+  next = pg.next;
+}
+const byId = new Map(all.map((p) => [p.id, p]));
+const line = [];
+for (let p = byId.get(rulerId); p && line.length < 4; p = byId.get(p.parent)) line.push(p.name);
+```
+
+### `history.dynasties({ polity?, offset?, limit? })`
+
+改朝换代过的国家的各朝(没改过的国家只有一朝,不列),分页取,`limit` 最多 2000;`polity` 只要某国的。每项 `DynastyInfo`:`polity`、`index`(第几朝,0 = 立国时那一朝)、`key`、`name`(东方语感是这一朝的国名词根,比如「景」;西幻是「卡诺王朝」;改制开的共和、军政府那一段是空的)、`from`、`until?`(下一朝开始或亡国那年;到最后还在 = 不给)、`seat`(这一朝兴起的城)、`regime?`(改制开的一段:`republic` 共和 / `junta` 军政府)。
+
+### `history.treaties({ year?, offset?, limit? })`、`history.zones({ year?, offset?, limit? })`
+
+约和中立地,分页取,`limit` 最多 2000;给了 `year` 只列那一年在的(约:立了、还没废;中立地:设了、还没撤)。
+
+约 `TreatyInfo`:`id`、`key`、`name`(改过的名字;没改过是会盟的城起的「丹枫关之约」,没有城是「甲与乙之约」,和条约卡片上一样)、`kind`(`pact` 两国互不侵犯 / `limited` 三国以上有限竞争)、`how`(`self` 几国自己立的 / `peace` 议和时顺带立的 / `decree` 用的人下令立的)、`parties`(立约的几国,按入约先后)、`start`、`term`(头一个期限,年;0 = 一直有效)、`until?`(眼下这一期到哪年,续过约的按最后一次续约算;一直有效 = 不给)、`ended?`、`end?`(`expire` 约满不续 / `lapse` 剩不到两国)、`keep?`(下令立的、约期内不许背约)、`settlement`(会盟的城)、`region`、`by`(居间的国家)、`foe`(共同的强邻)、`renewals`(续约 `[{ year, parties, term }]`)、`breaches`(背约 `[{ year, by, against }]`:谁背约打谁)、`zone`(依这份约设的中立地)。没有的编号是 −1。给了 `year` 还有 `members`:那一年还在约里的几国(背约的、亡了的、向别国称过臣的不算)。
+
+中立地 `ZoneInfo`:`id`、`region`、`settlement`、`treaty`(依的那份约,议和划的缓冲没有 = −1)、`how`(`treaty` 立约时共建 / `peace` 议和时划的缓冲)、`founders`(共建的几国)、`owner`(让出那州的国家,−1 = 原是无主之地)、`from`、`ended?`、`back?`(撤销时还给了谁,−1 = 没还)、`residents`(放逐、出奔到这里的人物)。
+
+### `history.relations({ year })`
+
+那一年的盟约和宗藩,亡了的国家不算:
+
+```ts
+{
+  alliances: [{ a, b, since, foe, decree? }],  // 结着的盟:两国、结盟那年、共御的强邻(−1 = 没有);decree = 用的人下令结的
+  vassals: [{ polity, liege, since }],         // 藩属:哪国、宗主、称臣那年
+}
+```
+
+和国家卡片上「盟国」「宗主」「藩属」一样。
+
+### `history.trade({ year?, offset?, limit? })`
+
+商道:要紧的货从产地州运到买方国都,分页取,`limit` 最多 2000;给了 `year` 只列那一年开通了、还没废的(断着的也算)。每项 `TradeInfo`:
+
+| 字段 | 意思 |
+|---|---|
+| `id`、`key`、`name` | 编号、稳定键、名字 |
+| `buyer` | 买方国家 |
+| `from` | 产地州 |
+| `goods` | 运过的货 `[{ resource, from, until? }]`,按开始运的先后;`resource` 是 `grain` 粮 / `livestock` 牲畜 / `copper` 铜锡 / `iron` 铁 / `coal` 煤 / `timber` 木材 / `salt` 盐 / `fish` 渔获 / `oil` 石油 / `rare` 稀有矿 / `gold` 金银 |
+| `events` | 通断,按年份 `[{ year, kind, foe?, why? }]`:`open` 通、`break` 断(`foe` 和哪国交兵)、`reopen` 复通、`end` 废(`why`:`fall` 买方亡了 / `gain` 本国采得到了 / `need` 用不着了 / `gone` 产地不产了或另找了产地 / `fade` 商旅渐稀) |
+| `paths` | 路线 `[{ year, regions }]`:从哪年起经过哪些州(产地 → 买方国都所在州),路线变了另起一段 |
+
+### `history.migrations({ offset?, limit? })`
+
+大迁徙:一个民族分出一支举族远走,到了落脚地立国、开战。分页取,`limit` 最多 2000。每项 `MigrationInfo`:`id`、`culture`(哪个民族)、`year`(动身那年)、`route`(依次走过的州,头一个是出发的州,最后一个是落脚的州)、`years`(到 `route` 里每一州的年份)、`dir`(`east` / `south` / `west` / `north`)、`size`(到了能占几州)、`push`(为什么走:`crowd` 老家挤 / `famine` 灾年 / `scatter` 本族的国刚散了、亡了)、`pull`(冲着什么去:`chaos` 那边大乱 / `plague` 疫后空了 / `rich` 富庶 / `tribal` 部落地带)、`target`(冲着哪国去,−1 = 部落地带)、`settled?`(落脚那年,还在路上 = 不给)、`outcome?`(`found` 立了国 / `conquer` 入主 / `rout` 败散)、`outcomeYear?`、`polity?`(立的国)。
+
+### `history.regionStats({ year, fields })`
+
+那一年每州一个数,一次取几种(`fields` 1–32 项)。返回 `{ 名字: Float32Array }`,长度是州数(`history.regions()` 不给年份的个数),下标是州的编号:
+
+| 名字 | 意思 |
+|---|---|
+| `population` | 人口(千人,城加乡村;同 `history.regions({ year })` 的 `population`) |
+| `control` | 中央管得到几成(0–1);割据 = 0,不在国家里 = `NaN` |
+| `era` | 时代:整数部分是第几个时代(0 石器、1 青铜、2 铁器、3 中古、4 火药、5 工业、6 电气、7 信息、8 未来),小数是走到了几成 |
+| `dev.production`、`dev.transport`、`dev.information`、`dev.administration`、`dev.mobilization` | 五种能力:生产、运输、信息、行政、动员,和时代同一把尺子 |
+| `res.grain`、`res.livestock`、`res.copper`、`res.iron`、`res.coal`、`res.timber`、`res.salt`、`res.fish`、`res.oil`、`res.rare`、`res.gold` | 物产眼下能用多少(0–3 档;还没发现的是 0) |
+| `ideology.mandate`、`ideology.law`、`ideology.council`、`ideology.craft`、`ideology.rights`、`ideology.nation`、`ideology.commons` | 各说的接受度(0–1):天命、律法、共治、技艺、民权、国族、均产 |
+
+名字和推演插件读的官方表一样。世界里存的是每隔一段的一份:能力、物产每 100 年(全球大疫前后每 20 年),思潮每 20 年,管辖每 20 年;人口每年都算得出。年份不在存的那几份上时:
+
+- 能力、时代、物产、思潮:**前后两份之间按年份线性插值**,和网站自己的图层一样
+- 管辖:分档的数,**用不晚于那一年的最近一份**;比第一份还早是 `NaN`
+- 人口:就是那一年的
+
+要画成按州按年份的图层,每隔几十年取一次,接成一串交给 `layer.regions`:
+
+```js
+const { to } = await civAtlas.history.span();
+const n = (await civAtlas.history.regions({})).length;
+const years = [];
+for (let y = 0; y <= to; y += 50) years.push(y);
+const values = new Float32Array(years.length * n);
+for (let k = 0; k < years.length; k++) {
+  const { era } = await civAtlas.history.regionStats({ year: years[k], fields: ['era'] });
+  values.set(era, k * n);
+}
+await civAtlas.layer.regions({ id: 'era', title: '各州的时代', years, values, ramp: { colors: ['#f7f4e9', '#8c2d04'], min: 0, max: 8 } });
+```
+
 ### `history.events({ from?, to?, offset?, limit? })`
 
 编年史 `[from, to]` 年里的条目,分页取,`limit` 最多 2000。编年史还没写好时回 `unavailable`。每项 `EventInfo`:`id`、`year`、`end`、`tag`(一个字的标签:立、战、亡……)、`text`(已经换好名字的一句话)、`importance`(1–3,3 是大事)、`polities`、`regions`、`settlement`(相关的城,没有是 −1)、`people?`。
@@ -166,6 +264,7 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 | `author.characters()` | 用的人放进世界的人物(格式同世界文件) |
 | `author.interventions()` | 下过的命令(干预,格式见下面 `author.apply`) |
 | `author.notes({ offset?, limit? })` | AI 写的正文,分页取,`limit` 最多 100;每项 `{ key, kind, title, text, createdAt }` |
+| `author.terrain()` | 改过的地形:`{ terrain, upheavals, sketch? }`,格式同世界文件(类型见 `types.ts` 的 `AuthorTerrainInfo`)。`terrain` 是地形修改(从第 0 年起就那样,每种的意思见 [`src/gen/edits.ts`](../../src/gen/edits.ts) 开头「地形修改」那一节的表),`upheavals` 是地形大事 `[{ year, ops }]`(那一年发生),`sketch` 是新建世界时涂的草图(没画 = 不给)。没改过 = 两个空数组 |
 
 ## 改你写的东西(`author.write@1`)
 
@@ -184,8 +283,8 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 **改名** `{ kind: 'name', key, name }`
 
-- `key`:`history.*` 返回的稳定键(国家、城、州、民族、信仰、人物、地名都行)
-- `name`:新名字;`null` 或空的 = 恢复原名。国家改的是国名词根:末尾的「国」「王国」「帝国」「王朝」这类会去掉,全称照当年的国号接上;民族末尾的「族」会去掉。去掉以后最长 16 个字,长了回 `limit`
+- `key`:`history.*` 返回的稳定键(国家、城、州、民族、信仰、人物、地名、朝代、约、商道都行)
+- `name`:新名字;`null` 或空的 = 恢复原名。国家改的是国名词根:末尾的「国」「王国」「帝国」「王朝」这类会去掉,全称照当年的国号接上(东方语感的朝代也一样);西幻的朝代末尾的「王朝」、民族末尾的「族」会去掉。去掉以后最长 16 个字,长了回 `limit`
 
 **加标记** `{ kind: 'mark', mark: { title, note?, color, size?, from, to?, at | regions } }`
 
@@ -232,6 +331,43 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 变化用 `view.year`、`view.select` 两个事件听(见[基本](#civatlasonevent-fn))。
 
+## 替你翻年份、移地图、圈出(`view.control@1`)
+
+讲解、导览这类插件用:翻到某一年,把地图移到某处,圈出几国几州。只有「工具」里开的插件(要了 `ui.panel@1` 或 `input.pick@1`)和开发者模式里载入的用得上,只交图层的插件调了回 `unavailable`。不能替用的人选中东西:选中了,插件卡要让给详情卡,面板就看不见了。
+
+| 调用 | 做什么 |
+|---|---|
+| `view.seek({ year })` | 时间轴翻到 `year` 年(整数,0 到 `history.span()` 的 `to`);正在放的停下 |
+| `view.fly({ cells?, box?, polities?, regions?, settlements?, year? })` | 地图飞过去看全给的这些,几样一起给也行 |
+| `view.highlight({ polities?, regions?, year? })` | 在地图上一直圈着几国(国土,淡)、几州(浓),换掉这个插件上一次圈的;不挪地图 |
+| `view.unhighlight()` | 拿掉这个插件圈的 |
+
+- `polities`、`regions`、`settlements` 每一项给编号、给稳定键都行,`history.events` 给的 `polities`、`regions` 可以直接交;键在这段历史里找不到回 `bad-args`
+- `cells` 是地块编号;`box` 是 `{ x0, y0, x1, y1 }`(世界坐标,`y` 在 0 到 `height` 之间;跨东西接缝的框把 `x1` 写成超过 `width` 的数)
+- 不给 `year` 按时间轴停的那一年。`view.fly` 的国家按那一年的国土(那年还没立国按立国那年,已经亡了按亡国前);`view.highlight` 就按那一年画,那一年不在的国家圈不出来,先 `view.seek` 翻到它在的年份。圈着的国土不跟着时间轴变,想跟着变就听 `view.year`,再圈一次
+- 只给了一个点(一座城、一块地)放大到看得清那一带,大的放到看全为止;已经在画面中间、远近也差不多就不动。地球仪上只把球转过去,不改远近。网站这时挪不了地图(比如正在回放世界形成)就不挪,不算出错
+- 还没有历史时 `view.seek`、`view.highlight` 和给了国、州、城的 `view.fly` 回 `unavailable`
+
+**用的人的手先。** 插件不跟用的人抢地图和时间轴:
+
+- 用的人按着鼠标或手指的时候(拖地图、捏合、拖时间轴……),`view.seek`、`view.fly` 不照办,回 `busy`,网站也不替插件排着,过一会儿再调。用的人点插件面板上的按钮,`panel.action` 到的时候已经松手了,接着调就行
+- 地图照插件的意思飞到半路,用的人一按地图、一滚滚轮,地图就停下让给他
+- `view.highlight` 不挪地图、不翻年份,不受这一条管
+- 一秒最多照办 `view.seek` 4 次、`view.fly` 2 次、`view.highlight` 10 次,多了回 `busy`;回了 `busy` 的不算次数
+
+插件停了,它圈的一起拿掉;翻到的年份、移到的地方留着。用的人点了编年史的一条,网站自己的高亮会换掉插件圈的。
+
+```js
+// 带你看一场仗:翻到那一年,圈出交战的国家和打到的州,地图飞过去
+const { items } = await civAtlas.history.events({ from: 400, to: 500 });
+const war = items.find((e) => e.tag === '战');
+if (war) {
+  await civAtlas.view.seek({ year: war.year });
+  await civAtlas.view.highlight({ polities: war.polities, regions: war.regions });
+  await civAtlas.view.fly({ polities: war.polities, regions: war.regions });
+}
+```
+
 ## 点选(`input.pick@1`)
 
 请用的人在地图上点。鼠标、手指由网站处理,插件只拿到点完的结果,拿不到每一下移动;点的时候拖地图、缩放照常。
@@ -262,14 +398,17 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 | `type` | 字段 | 是什么 |
 |---|---|---|
 | `heading` | `text` | 小标题 |
-| `text` | `text` | 一段字,可以有换行 |
+| `text` | `text` | 一段字,可以有换行;`text` 也可以是一串,里面夹着[链接](#链接和能点的行) |
 | `number` | `label`、`value`、`unit?` | 一个数,带名字和单位 |
-| `table` | `columns`、`rows` | 表格,格子里是字或数 |
-| `list` | `items` | 一串字 |
+| `table` | `columns`、`rows`、`id?`、`to?` | 表格,格子里是字或数;给了 `id` 一行一行能点 |
+| `list` | `items`、`id?`、`to?` | 一串字;给了 `id` 一项一项能点 |
 | `button` | `id`、`label`、`disabled?` | 按钮 |
 | `select` | `id`、`label`、`options: [{ value, label }]`、`value?` | 下拉;`value` 和各项的 `value` 写法同 `id` |
 | `slider` | `id`、`label`、`min`、`max`、`step?`、`value` | 滑块 |
 | `toggle` | `id`、`label`、`value` | 开关 |
+| `input` | `id`、`label`、`value?`、`placeholder?`、`max?`、`multiline?` | [输入框](#输入框) |
+| `color` | `id`、`label`、`value` | 挑颜色:网站给几种常用的,也能填色号;颜色写成 `#rrggbb` |
+| `tabs` | `id?`、`value?`、`tabs: [{ title, children }]` | 页签:一页放一组格子,用的人点哪页显示哪页;`value` 是一开始显示第几页(从 0 数) |
 | `legend` | `items: [{ color, label }]` | 图例,颜色写成 `#rrggbb` |
 | `divider` | — | 分隔线 |
 | `progress` | `value`(0–1)、`label?` | 进度条 |
@@ -277,21 +416,43 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 上限:
 
-- 一个面板最多 2000 个格子,字一共最多 4000 个;`group` 最多套 4 层
-- 小标题、名字、按钮上的字、表格和列表里的一格最多 80 个字,`unit` 最多 16 个字
-- 表格最多 500 行、20 列,列表最多 500 项,下拉最多 100 项,图例最多 32 项;表格的格子、列表的项、下拉的选项、图例加起来最多 20000 个
-- 控件的 `id`:字母、数字、`-`、`_`,最长 32,一个面板里不能重
-- 控制字符会去掉;除了 `text`,换行都换成空格
+- 一个面板最多 2000 个格子,字一共最多 4000 个(输入框里插件填的字也算);`group`、`tabs` 最多套 4 层,页签里不能再放页签
+- 小标题、名字、按钮上的字、表格和列表里的一格、链接上的字、输入框的 `placeholder` 最多 80 个字,`unit`、页签的 `title` 最多 16 个字
+- 表格最多 500 行、20 列,列表最多 500 项,下拉最多 100 项,图例最多 32 项,页签最多 8 页,一段字最多分 200 截;表格的格子、列表的项、下拉的选项、图例、`to` 的项、一段字分的截加起来最多 20000 个
+- 输入框最多 2000 个字
+- 控件的 `id`(按钮、下拉、滑块、开关、输入框、颜色、页签、能点的表格和列表、链接):字母、数字、`-`、`_`,最长 32,一个面板里不能重
+- 控制字符会去掉;除了 `text` 和多行的输入框,换行都换成空格
+
+### 输入框
+
+`{ type: 'input', id, label }` 是一行的输入框,`multiline: true` 是多行的。名字在框上面,框占满一行。
+
+- `value`:框里一开始的字;`placeholder`:框空着时的浅灰提示
+- `max`:最多几个字,1–2000,不给 = 一行的 200、多行的 2000;快写满时框右下角显示写了几个字、最多几个
+- 用的人打字时不发;一行的按回车或点别处、多行的点别处(多行里回车是换行)才发 `panel.action`,`value` 是框里的字
+
+没有密码框。卡片头的「插件」两个字一直在,用的人看得出是插件在问,不是网站。**不要请用的人输入密钥、密码、账号**(见[写插件时照着查](limits.md#写插件时照着查)),审核时这样的插件会退回。
+
+### 链接和能点的行
+
+- 链接:`text` 写成一串,字和链接 `{ text, id?, to? }` 接着排,例如 `['第一名是', { text: '塞雷尼亚帝国', id: 'top' }, '。']`
+- 能点的行:`table`、`list` 给了 `id`,每一行(项)都能点,右边有个小箭头
+- `to`:这一项指向的东西,国、城、州的稳定键 `{ key }`(`history.polities()` 这些给的 `key`),或者年份 `{ year }`;`table`、`list` 的 `to` 一行一个,和 `rows`、`items` 一样长,不指向什么的写 `null`
+- 现在网站只认 `id`:点了发 `panel.action`;只给了 `to`、没给 `id` 的链接和行点不了,照普通的字画
 
 ### 用的人动了控件
 
-收到 `panel.action` 事件 `{ id, value? }`:按钮没有 `value`(按钮 `disabled` 时不发),开关是 `true` / `false`,下拉是选中那项的 `value`,滑块是数。值不合那个控件的不转给插件。要让面板跟着变(比如数字重算了),再 `panel.set` 一次。
+收到 `panel.action` 事件 `{ id, value? }`:按钮没有 `value`(按钮 `disabled` 时不发),开关是 `true` / `false`,下拉是选中那项的 `value`,滑块是数,输入框是框里的字,颜色是 `#rrggbb`,链接没有 `value`,能点的表格、列表是点了第几行(从 0 数),页签是换到了第几页(没给 `id` 的页签换页不发)。值不合那个控件的不转给插件。要让面板跟着变(比如数字重算了),再 `panel.set` 一次。
 
 ```js
 civAtlas.on('panel.action', ({ id, value }) => {
   if (id === 'mode') { mode = value; render(); }
+  if (id === 'find') { query = value; render(); }
+  if (id === 'rank') { picked = rows[value]; render(); }
 });
 ```
+
+再 `panel.set` 时,输入框里用的人打的字、选中的页签留着;插件换了输入框的 `value`、页签的 `value`,就照插件给的。
 
 ## 图层(`layer.cells@1`、`layer.regions@1`、`layer.marks@1`)
 
@@ -432,7 +593,7 @@ try {
 | `bad-args` | 参数不对(`message` 说哪里不对);参数里有传不过去的东西(函数之类)也是它 |
 | `limit` | 超过上限 |
 | `unavailable` | 现在拿不到:还没打开世界、还没有历史、编年史还没写好、网站这边还没开这个功能 |
-| `busy` | 正忙:取数太快、同时没回的调用太多、上一次点选或选文件还没完、提修改太快 |
+| `busy` | 正忙:取数太快、同时没回的调用太多、上一次点选或选文件还没完、提修改太快、用的人正按着地图或时间轴、翻年份移地图太快 |
 | `blocked` | 网站这时不让改 |
 | `cancelled` | 用的人取消了(比如退出了点选、没存文件、不给文件) |
 | `failed` | 网站这边出错 |

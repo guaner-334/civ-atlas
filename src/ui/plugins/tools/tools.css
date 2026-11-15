@@ -424,6 +424,188 @@
   font-size: 12px;
   color: var(--ink-2);
 }
+/* 能点的行、项:整行能点,右边一直有小箭头(手机没有悬停) */
+.plg-tr.go,
+.plg-li.go {
+  align-items: center;
+  cursor: pointer;
+}
+.plg-li.go {
+  justify-content: space-between;
+}
+.plg-tr.go::after,
+.plg-li.go::after,
+.plg-tr.go-pad::after {
+  content: '';
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-left: -4px;
+}
+.plg-tr.go::after,
+.plg-li.go::after {
+  background: no-repeat center / 12px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aeaeb2' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E");
+}
+.plg-tr.go:active,
+.plg-li.go:active {
+  background: rgba(118, 118, 128, 0.1);
+}
+@media (hover: hover) {
+  .plg-tr.go:hover,
+  .plg-li.go:hover {
+    background: rgba(118, 118, 128, 0.1);
+  }
+  .plg-a:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+.plg-tr.go:focus-visible,
+.plg-li.go:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* 一段字里的链接:和侧栏能点的名字一个颜色 */
+.plg-a {
+  color: var(--link);
+  cursor: pointer;
+}
+/* 输入框:标签在上、框占满一行 */
+.plg-fld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plg-fld > label {
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.plg-in,
+.plg-ta {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--btn);
+  font: 14px/1.6 var(--font-sans);
+  color: var(--ink);
+  outline: none;
+}
+.plg-in {
+  height: 36px;
+  padding: 0 12px;
+}
+.plg-ta {
+  min-height: 84px;
+  max-height: 240px;
+  padding: 9px 12px;
+  resize: none;
+  field-sizing: content;
+}
+.plg-in::placeholder,
+.plg-ta::placeholder {
+  color: var(--ink-3);
+}
+.plg-in:focus,
+.plg-ta:focus {
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.plg-cnt {
+  align-self: flex-end;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+/* 页签:网站的分段控件,铺满一行 */
+.plg-tabs.seg button {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 4px;
+  font-size: 13.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.plg-card.phone .plg-tabs.seg button {
+  padding: 7px 4px;
+  font-size: 14px;
+}
+/* 颜色:行右边色点 + 色号,点开在这一行下面摊开 */
+.plg-colv {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.plg-colv i {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+.plg-colv.open i {
+  box-shadow:
+    0 0 0 2px var(--panel-solid),
+    0 0 0 4px var(--accent);
+}
+.cp-grid > .plg-pop {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+.plg-pop .mk-colors {
+  padding: 2px 2px 0;
+  gap: 0;
+  justify-content: space-between;
+}
+.plg-pop .mk-colors button {
+  width: 24px;
+  height: 24px;
+}
+.plg-card.phone .plg-pop .mk-colors button {
+  width: 30px;
+  height: 30px;
+}
+.plg-pop .mk-colors button.white {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+.plg-pop .mk-colors button.on {
+  box-shadow:
+    0 0 0 2px var(--panel-solid),
+    0 0 0 4px var(--ink-2);
+}
+.plg-hex {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.plg-hex .plg-in {
+  flex: 1;
+  height: 32px;
+  background: var(--surface);
+  font-variant-numeric: tabular-nums;
+}
+/* 手机上分组本来就是白底 */
+.plg-card.phone .plg-hex .plg-in {
+  background: var(--field);
+}
 /* 一排按钮 */
 .plg-bts {
   display: flex;
