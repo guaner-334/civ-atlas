@@ -127,6 +127,8 @@ if (zoom) {
     return o.toDataURL('image/png');
   }, crop);
   const fs = await import('node:fs');
+  const path = await import('node:path');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, Buffer.from(dataUrl.split(',')[1], 'base64'));
 } else {
   await page.screenshot({ path: out });

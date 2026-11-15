@@ -64,6 +64,26 @@ describe('地图插件的清单', () => {
     expect(checkMapManifest({ map: s, requires: requires() })).toEqual({ what: '生成的一步', name: 'rivers' });
   });
 
+  it('map.reads:认得的名字读得进来、原样留在清单里;只在没写的那一口才有的报错;不认得的算这一版网站还没有', async () => {
+    const input = goodMapInput();
+    const { why: _w, ...m } = input.manifest;
+    const map = { ...goodMap(), reads: ['cellArea', 'currentU', 'downstream'] };
+    const p = await openPluginFile(await packPluginFile({ ...input, manifest: { ...m, requires: requires(), map } }));
+    expect(p.manifest.map?.reads).toEqual(['cellArea', 'currentU', 'downstream']);
+    expect(checkMapManifest({ map: { stages: ['height'], reads: ['convergence', 'worldParams', 'edited'] }, requires: ['gen.height@1'] })).toBeNull();
+    expect(() => checkMapManifest({ map: { stages: ['height'], reads: ['downstream'] }, requires: ['gen.height@1'] })).toThrow('map.reads 写了 downstream,它只递给出图层,map.stages 里一口都没写');
+    expect(() => checkMapManifest({ map: { stages: ['height'], reads: ['currentU'] }, requires: ['gen.height@1'] })).toThrow('它只递给改气候、出图层');
+    expect(checkMapManifest({ map: { ...goodMap(), reads: ['cellArea', 'tideRange'] }, requires: requires() })).toEqual({ what: '地图读数', name: 'tideRange' });
+    const bad: [unknown, RegExp][] = [
+      ['cellArea', /map\.reads 不是列表/],
+      [['cell-area'], /map\.reads\[0\] 不合规矩/],
+      [[1], /map\.reads\[0\] 不合规矩/],
+      [['uplift', 'uplift'], /uplift 写了两遍/],
+      [Array.from({ length: 65 }, (_, i) => `r${i}`), /最多 64 项/],
+    ];
+    for (const [reads, says] of bad) expect(() => checkMapManifest({ map: { ...goodMap(), reads }, requires: requires() })).toThrow(says);
+  });
+
   it('多要的能力标出来', () => {
     expect(mapCapsUnused({ map: goodMap(), requires: requires() })).toEqual([]);
     expect(mapCapsUnused({ map: { stages: ['climate'] }, requires: requires() })).toEqual(['gen.layers@1']);

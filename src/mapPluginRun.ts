@@ -6,7 +6,7 @@
 import type { MapPlugin } from './gen/mapHooks';
 import { MapPluginLoadError, quickjsMapPlugin, type QuickJSMapPlugin, type QuickJSMapSpec } from './gen/quickjs/map';
 import type { WorldPlugin } from './gen/worldFormat';
-import { openPluginFile } from './plugin/pluginFile';
+import { PluginFileError, openPluginFile } from './plugin/pluginFile';
 import type { MapLayerSpec } from './plugin/pluginMap';
 import { mapPluginKey, mapPluginOf, simParamsOf, type MapPluginFile } from './plugin/pluginWorld';
 
@@ -36,7 +36,7 @@ export async function loadMapFile(f: MapPluginFile & { bytes: Uint8Array }, key:
   try {
     o = await openPluginFile(f.bytes);
   } catch (e) {
-    throw new MapPluginLoadError(f.id, e instanceof Error ? e.message : String(e));
+    throw new MapPluginLoadError(f.id, e instanceof Error ? e.message : String(e), e instanceof PluginFileError && !!e.gone);
   }
   if (o.sum !== f.sum) throw new MapPluginLoadError(f.id, '文件和指纹对不上');
   if (o.manifest.id !== f.id) throw new MapPluginLoadError(f.id, `文件里是 ${o.manifest.id}`);
@@ -46,7 +46,11 @@ export async function loadMapFile(f: MapPluginFile & { bytes: Uint8Array }, key:
   // 世界键、世界记的都按补齐的滑条认:没补齐的请求长出来的世界和清单对不上
   if (mapPluginKey({ id: f.id, sum: f.sum, params }) !== key) throw new MapPluginLoadError(f.id, '滑条要照清单补齐、压回上下限');
   const looks = map.layers ?? [];
-  const setup = { stages: map.stages as QuickJSMapSpec['setup']['stages'], ...(looks.length ? { layerIds: looks.map((l) => l.id) } : {}) };
+  const setup = {
+    stages: map.stages as QuickJSMapSpec['setup']['stages'],
+    ...(looks.length ? { layerIds: looks.map((l) => l.id) } : {}),
+    ...(map.reads?.length ? { reads: map.reads } : {}),
+  };
   let plugin: QuickJSMapPlugin;
   try {
     plugin = await box({ id: f.id, key, code: o.code, setup, params });
