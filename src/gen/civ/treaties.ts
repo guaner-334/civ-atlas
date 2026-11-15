@@ -60,6 +60,7 @@ import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
 import { keyed, keyed4, subSeed } from './engine/rand';
 import { quantize, type CivSim } from './engine/sim';
+import { mulOf } from './influence';
 import { REOPEN, hates, limitedEnd, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
@@ -223,6 +224,11 @@ export class TreatyModel {
    * 记史事 intervene(b 列见 IV_NOBODY 那几个),生效了接着记 treaty / neutral。installTreaties 时挂上
    */
   decree?: (v: Extract<Intervention, { kind: 'treaty' | 'neutral' }>, i: number, a: number, t: Year, iv: InterventionModel) => void;
+  /** 推演插件的命令「废约」「撤中立地」:约当即作废(记 expire,cause = decree)/ 中立地当即撤销(同到期撤)。installTreaties 时挂上 */
+  annul?: (x: Treaty, t: Year) => void;
+  unzone?: (z: Zone, t: Year) => void;
+  /** 中立地 z 此刻撤了还给谁(−1 = 成了无主之地);owner = 各州此刻的主人(收命令那一关推着看的) */
+  backOf?: (z: Zone, owner: (r: number) => number) => number;
 
   constructor(pm: PolityModel, dm: DiplomacyModel) {
     this.pm = pm;
@@ -595,12 +601,21 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     if (cause === 'decree' && until !== undefined) sim.schedule(until, Ev.ZoneEnd, id, 0);
   };
 
+  /** 中立地 z 撤了还给谁:原主还在、陆上还和它接壤、不是藩属才还 */
+  const backOf = (z: Zone, of: (r: number) => number = (r) => owner[r]): number => {
+    const r = z.region;
+    if (of(r) >= 0) return of(r);
+    if (z.owner < 0 || !alive(z.owner) || dm.liegeOf(z.owner) >= 0) return -1;
+    for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) if (land(reg.adjKind[e]) && of(reg.adj[e]) === z.owner) return z.owner;
+    return -1;
+  };
+  m.backOf = backOf;
+
   /** 撤中立地:还给原主(还在、陆上还和它接壤),不然成了无主之地 */
   const dropZone = (z: Zone, t: Year) => {
     if (z.ended !== undefined) return;
     const r = z.region;
-    let back = owner[r];
-    if (back < 0 && z.owner >= 0 && alive(z.owner) && touches(z.owner, r) && dm.liegeOf(z.owner) < 0) back = z.owner;
+    const back = backOf(z);
     const give = owner[r] < 0 && back >= 0;
     note('neutral', { a: back, region: r, settlement: pm.cityOf[r], war: z.id, n: z.treaty, cause: 'lapse' });
     if (give) sim.setOwner(Layer.Polity, r, back, Ev.Neutral);
@@ -697,6 +712,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     let odds = TREATY_ODDS * (stale ? REASON : 1) * (foe >= 0 ? REASON : 1);
     if (calm(p, t)) odds *= CALM;
     if (calm(q, t)) odds *= CALM;
+    const oddsIn = sim.influence?.get('treaty.odds');
+    if (oddsIn) odds *= mulOf(oddsIn, p);
     if (keyed(base, pm.ptag[p], k, U_TREATY) >= odds) return false;
     // 拉进第三、第四国:和两国都陆上接壤(或者和其中一国接壤、也挨着那个共同的强邻 —— 一样怕它)、国力和其中一国差不多、
     // 没在和约国打仗的邻国,各有 JOIN 的机会
@@ -901,6 +918,9 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   /** 作者选的那一州能不能做这几国的中立地:有人住、还不是中立地、原属其中一国或无主、不是国都、没被作者永久划给谁 */
   const zoneOk = (r: number, ps: readonly number[], t: Year): boolean =>
     r >= 0 && r < culture.length && culture[r] >= 0 && m.zoneAt[r] < 0 && (owner[r] < 0 || ps.includes(owner[r])) && !isCapital(r) && !wm.iv?.locked(r, t);
+
+  m.annul = (x, t) => endTreaty(x, t, 'decree');
+  m.unzone = (z, t) => dropZone(z, t);
 
   m.decree = (v, i, a, t, iv) => {
     const sid = alive(a) ? capitalAt(pm.polities[a], t) : -1;

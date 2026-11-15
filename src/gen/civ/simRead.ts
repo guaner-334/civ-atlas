@@ -157,7 +157,8 @@ export interface SimWar {
   /** 这场仗里易手的州(按先后;by = 拿下它的一方) */
   takes: { year: number; region: number; by: number }[];
   /**
-   * 还在打的才有:攻方拿下几州就议和、最多打几年(从宣战算),照攻方此刻说了算的人的倾向和方针算。
+   * 还在打的才有:攻方拿下几州就议和、最多打几年(从宣战算),照攻方此刻说了算的人的倾向和方针算,插件交给 war.goal、war.length 的倍数也乘上了
+   * (交了 war.goal 的,goal 可能带小数:拿下的州数够到它就议和)。
    * 讨伐民变、宗室争位、迁来的一支开的仗不看目标(没有 goal),打得更久;攻方国力是守方好几倍的灭国之战也不看目标
    */
   goal?: number;
@@ -634,10 +635,10 @@ export function simRead(sim: CivSim): SimRead | null {
         else {
           // 和推演里议和那一步的算法一样
           const eff = effOf(pm, w.a, t);
-          const length = lengthOf(wm, w) * eff.war;
+          const length = lengthOf(wm, w, sim.influence) * eff.war;
           if (api?.revolt?.(w)) info.length = wm.k.REVOLT_LENGTH * length;
           else {
-            info.goal = Math.max(1, goalOf(wm, w) + eff.goal);
+            info.goal = Math.max(1, goalOf(wm, w, sim.influence) + eff.goal);
             info.length = length;
           }
         }

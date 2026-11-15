@@ -644,6 +644,21 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${folk(v.folk)} 不许大迁徙${until(v.until)}`;
     case 'appoint':
       return `${id(v.a, 'polity', 'P')} 任作者的人物为${v.role === 'general' ? '将领' : '名臣'}${until(v.until)}`;
+    case 'peace':
+    case 'submit':
+    case 'unally':
+    case 'annul':
+      return `${id(v.a, 'polity', 'P')} 与 ${id(v.b, 'polity', 'P')} ${KIND_LABEL[v.kind]}`;
+    case 'release':
+    case 'dynasty':
+      return `${id(v.a, 'polity', 'P')} ${KIND_LABEL[v.kind]}`;
+    case 'secede':
+      return `${v.regions.map(reg).join('、')} 从 ${id(v.a, 'polity', 'P')} 分出去立国`;
+    case 'unzone':
+    case 'city':
+      return `${reg(v.region)} ${KIND_LABEL[v.kind]}`;
+    case 'convert':
+      return `${reg(v.region)} 改成 ${folk(v.folk)}`;
   }
 }
 
@@ -1473,6 +1488,16 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   trek: '大迁徙',
   stay: '不许迁',
   appoint: '任作者的人物为将 / 为臣',
+  peace: '停战',
+  submit: '称臣',
+  release: '放藩',
+  unally: '断盟',
+  annul: '废约',
+  unzone: '撤中立地',
+  city: '建城',
+  dynasty: '改朝换代',
+  secede: '分裂',
+  convert: '改一州的民族',
 };
 
 // ---------------------------------------------------------------------------

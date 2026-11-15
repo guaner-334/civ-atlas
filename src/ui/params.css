@@ -29,9 +29,6 @@
 [data-theme='dark'] .pf {
   background: rgba(0, 0, 0, 0.32);
 }
-.pf.k-endYear {
-  width: 88px;
-}
 .pf .pf-in {
   flex: 1;
   display: block;

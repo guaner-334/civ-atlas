@@ -50,7 +50,7 @@ import { biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
-import { AdjKind, Layer, type Civ, type Culture, type MigrationDir, type Polity, type Year } from './types';
+import { AdjKind, Layer, type AnnalCause, type Civ, type Culture, type MigrationDir, type Polity, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './engine/rand';
 import { BOOKED_AT_START, bookChain, quantize, type CivSim } from './engine/sim';
 import { addCulture, cultureModelOf } from './cultures';
@@ -176,6 +176,8 @@ export interface AssimModel {
   since: Float64Array;
   /** 民族 → 现在有几州 */
   count: Int32Array;
+  /** 推演插件的命令「改民族」:州 r 当即改成民族 c(hook 里填;interventions.ts 在那一刻调) */
+  convert?: (r: number, c: number, pid: number, t: Year) => void;
 }
 
 function newModel(pm: PolityModel, wm: WarModel, cultures: Culture[], world: World): AssimModel {
@@ -260,15 +262,17 @@ function hook(sim: CivSim, am: AssimModel): void {
   const city = (r: number) => pm.cityOf[r];
 
   /** 改民族 + 记史事;原民族的州因此一州不剩就消亡 */
-  const change = (kind: 'assimilate' | 'migrate', r: number, c: number, cause: number, pid: number, t: number) => {
+  const change = (kind: 'assimilate' | 'migrate', r: number, c: number, cause: number, pid: number, t: number, why?: AnnalCause) => {
     const old = culture[r];
     sim.setOwner(Layer.Culture, r, c, cause);
-    sim.record(kind, { a: c, b: old, region: r, settlement: city(r), war: pid });
+    sim.record(kind, { a: c, b: old, region: r, settlement: city(r), war: pid, ...(why ? { cause: why } : {}) });
     if (old >= 0 && count[old] === 0 && cultures[old].ended === undefined) {
       cultures[old].ended = t;
       sim.record('vanish', { a: old, b: c, region: r });
     }
   };
+
+  am.convert = (r, c, pid, t) => change('assimilate', r, c, Ev.Assimilate, pid, t, 'decree');
 
   /** 从 from 这几州到 to 这几州(治所位置的平均)的方位 */
   const direction = (from: readonly number[], to: readonly number[]): MigrationDir => {
@@ -608,8 +612,16 @@ function hook(sim: CivSim, am: AssimModel): void {
         pickApart = apart;
         pickRuler = apart ? -1 : owner[g[0]];
       }
-      if (pick < 0 || keyed4(am.base, reg.seat[P.hearth], pickTag, k, U_DIVERGE) >= DIV_P) continue;
+      if (pick < 0) continue;
       const g = all[pick];
+      const divIn = sim.influence?.get('diverge.odds');
+      let divP = DIV_P;
+      if (divIn) {
+        let sum = 0;
+        for (const r of g) sum += divIn[r];
+        divP *= sum / g.length;
+      }
+      if (keyed4(am.base, reg.seat[P.hearth], pickTag, k, U_DIVERGE) >= divP) continue;
       // 新民族的发源州:这片里治所最宜居的(一样宜居取治所地块小的)
       let hearth = g[0];
       for (const r of g) if (T.seatSuit[r] > T.seatSuit[hearth] || (T.seatSuit[r] === T.seatSuit[hearth] && reg.seat[r] < reg.seat[hearth])) hearth = r;

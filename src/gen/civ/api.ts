@@ -153,6 +153,8 @@ export interface PoliticsApi {
 export interface DiplomacyApi {
   /** 记一条邦交的史事并更新模型(installDiplomacy 提供;wars.ts 背盟时用) */
   note?: (kind: Annal['kind'], f: Partial<Omit<Annal, 'year' | 'kind'>>) => void;
+  /** v 向 L 称臣:记 submit,它结着的盟随之作废(installDiplomacy 提供;推演插件的命令「称臣」用) */
+  swear?: (v: number, L: number, t: Year) => void;
   /**
    * x 向 y 宣战、记 war 之前(installDiplomacy 提供;wars.ts 的 declare 调,war = 这场战争的编号):
    * 两国结着盟、有宗藩之分的,就此断了;同是一国的藩属的,攻方先自立。

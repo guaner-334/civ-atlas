@@ -1,6 +1,6 @@
 # 接口参考(第 1 版)
 
-这一页是工具插件(`role: "tool"`)的接口。推演插件(`role: "sim"`)拿到的 `civAtlas` 只有 `sim` 和 `params`,一回合、回话、读口这些见[推演插件](sim.md);地图插件(`role: "map"`)拿到的只有 `map` 和 `params`,三个口子递什么、交回什么、帮手这些见[地图插件](map.md)。
+这一页是工具插件(`role: "tool"`)的接口。推演插件(`role: "sim"`)拿到的 `civAtlas` 只有 `sim` 和 `params`,一回合、回话、读口这些见[推演插件](sim.md);地图插件(`role: "map"`)拿到的只有 `map` 和 `params`,各个口子递什么、交回什么、帮手这些见[地图插件](map.md)。
 
 插件代码在后台线程里跑,拿到一个全局对象 `civAtlas`。类型定义在 [`src/plugin/types.ts`](../../src/plugin/types.ts),每个调用要哪样能力在 [`src/plugin/caps.ts`](../../src/plugin/caps.ts)。
 
@@ -458,7 +458,7 @@ if (war) {
 - 链接:`text` 写成一串,字和链接 `{ text, id?, to? }` 接着排,例如 `['第一名是', { text: '塞雷尼亚帝国', id: 'top' }, '。']`
 - 能点的行:`table`、`list` 给了 `id`,每一行(项)都能点,右边有个小箭头
 - `to`:这一项指向的东西,国、城、州的稳定键 `{ key }`(`history.polities()` 这些给的 `key`),或者年份 `{ year }`;`table`、`list` 的 `to` 一行一个,和 `rows`、`items` 一样长,不指向什么的写 `null`
-- 现在网站只认 `id`:点了发 `panel.action`;只给了 `to`、没给 `id` 的链接和行点不了,照普通的字画
+- 点了:给了 `id` 的发 `panel.action`;给了 `to` 的,网站带用的人过去(国、州、城飞过去,国和州圈一下;年份翻到那一年)。这是用的人自己点的,不需要插件申请 `view.control`;`to` 指的东西这段历史里找不到,就只发 `panel.action`
 
 ### 用的人动了控件
 

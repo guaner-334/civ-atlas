@@ -70,7 +70,7 @@
 
 | 字段 | 意思 | 要的能力 |
 |---|---|---|
-| `stages` | 在长地图的哪几步出手,不能空着:`height`(改海拔)、`climate`(改气候)、`layers`(出图层) | 写了 `height` 要 `gen.height@1`,`climate` 要 `gen.climate@1`,`layers` 要 `gen.layers@1` |
+| `stages` | 在长地图的哪几步出手,不能空着:`height`(改海拔)、`climate`(改气候)、`seaice`(改海冰)、`runoff`(改水系)、`layers`(出图层) | 写了哪一步就要那一步的能力:`height` 要 `gen.height@1`,`climate` 要 `gen.climate@1`,`seaice` 要 `gen.seaice@1`,`runoff` 要 `gen.runoff@1`,`layers` 要 `gen.layers@1` |
 | `layers` | 交哪几张图层(最多 4 张):编号和样子。`stages` 写了 `layers` 的一定要有,没写的不能有 | `gen.layers@1` |
 | `params` | 新建世界时拨的滑条(最多 8 个) | 不要能力 |
 | `reads` | 每一口多递哪些数(最多 64 样),名字见[多读的数](map.md#多读的数) | 不要能力 |

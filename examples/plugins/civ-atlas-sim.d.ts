@@ -460,7 +460,8 @@ export interface SimWar {
   /** 这场仗里易手的州(按先后;by = 拿下它的一方) */
   takes: { year: number; region: number; by: number }[];
   /**
-   * 还在打的才有:攻方拿下几州就议和、最多打几年(从宣战算),照攻方此刻说了算的人的倾向和方针算。
+   * 还在打的才有:攻方拿下几州就议和、最多打几年(从宣战算),照攻方此刻说了算的人的倾向和方针算,插件交给 war.goal、war.length 的倍数也乘上了
+   * (交了 war.goal 的,goal 可能带小数:拿下的州数够到它就议和)。
    * 讨伐民变、宗室争位、迁来的一支开的仗不看目标(没有 goal),打得更久;攻方国力是守方好几倍的灭国之战也不看目标
    */
   goal?: number;
@@ -643,7 +644,29 @@ export type InfluenceName =
   | 'split.odds'
   | 'dynasty.odds'
   | 'plague.odds'
-  | 'plague.loss';
+  | 'plague.loss'
+  | 'revolt.odds'
+  | 'collapse.odds'
+  | 'claim.odds'
+  | 'warlord.odds'
+  | 'merge.odds'
+  | 'restore.odds'
+  | 'alliance.odds'
+  | 'submit.odds'
+  | 'defect.odds'
+  | 'treaty.odds'
+  | 'marry.odds'
+  | 'aid.odds'
+  | 'war.length'
+  | 'war.goal'
+  | 'sack.odds'
+  | 'ruin.odds'
+  | 'rebuild.odds'
+  | 'defense.power'
+  | 'plague.spread'
+  | 'famine.odds'
+  | 'diverge.odds'
+  | 'trek.odds';
 
 /** 命令里指一国、一州、一城、一族:读口里的编号(只在这一刻有效),或稳定键 */
 export type SimRef = number | string;
@@ -651,8 +674,10 @@ export type SimRef = number | string;
 export type DisasterLevel = 1 | 2 | 3;
 export type TrekReach = 'near' | 'mid' | 'far';
 export type TrekDir = 'east' | 'south' | 'west' | 'north';
+/** 推一把发展快几倍(不给 = 直接进下一个时代) */
+export type BoostMul = 3 | 10;
 
-/** 插件能下的命令(PluginReply.commands 里的一条) */
+/** 插件能下的命令(PluginReply.commands 里的一条;protect、unity、halt、keep、stay 是否决类,管到 until。各种的意思见推演插件文档「命令」一节) */
 export type SimCommand =
   | { kind: 'declare'; a: SimRef; b: SimRef }
   | { kind: 'ally'; a: SimRef; b: SimRef; until?: number }
@@ -664,4 +689,14 @@ export type SimCommand =
   | { kind: 'disaster'; type: 'plague'; level: DisasterLevel; city: SimRef }
   | { kind: 'disaster'; type: 'famine'; level: DisasterLevel; a?: SimRef; regions?: SimRef[] }
   | { kind: 'disaster'; type: 'quake'; level: DisasterLevel; region: SimRef }
-  | { kind: 'trek'; folk: SimRef; region?: SimRef; to?: SimRef; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir };
+  | { kind: 'trek'; folk: SimRef; region?: SimRef; to?: SimRef; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir }
+  | { kind: 'neutral'; a: SimRef; region: SimRef; ps: SimRef[]; quiet?: true; lasting?: true; until?: number; ask?: true }
+  | { kind: 'boost'; a: SimRef; mul?: BoostMul; until?: number; regions?: SimRef[] }
+  | { kind: 'protect' | 'unity' | 'halt' | 'keep'; a: SimRef; until?: number }
+  | { kind: 'stay'; folk: SimRef; until?: number }
+  | { kind: 'peace' | 'submit' | 'unally' | 'annul'; a: SimRef; b: SimRef }
+  | { kind: 'release'; a: SimRef }
+  | { kind: 'unzone' | 'city'; region: SimRef }
+  | { kind: 'dynasty'; a: SimRef; region?: SimRef }
+  | { kind: 'secede'; a: SimRef; regions: SimRef[]; name?: string }
+  | { kind: 'convert'; region: SimRef; folk: SimRef };

@@ -44,10 +44,11 @@
  * 随机数:keyed(subSeed(seed, 'civ-diplomacy'), 国家…, 第几次, 用途);国家一律用位置锚(PolityModel.ptag)。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
-import { YEAR_TICKS, resolveKey } from '../edits';
+import { YEAR_TICKS, isCommand, resolveKey, type Intervention } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './engine/rand';
 import { bookChain, quantize, type CivSim } from './engine/sim';
+import { mulOf, oddsTimes } from './influence';
 import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { POLICY_KNOBS } from './policy';
 import { MARRIAGES_KNOBS } from './marriages';
@@ -417,6 +418,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     for (const x of dm.pactsOf(v)) record('unally', { a: v, b: x.a === v ? x.b : x.a, cause: 'vassal' });
   };
 
+  api.diplomacy.swear = (v, L, t) => swear(v, L, t);
+
   // ---- ① 藩属自立 ----
   const tryDefect = (v: number, L: number, k: number, t: number): boolean => {
     if (t - (dm.sworn.get(v) ?? t) < DEFECT_MIN) return false;
@@ -424,6 +427,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     let odds = DEFECT_ODDS * weakness(L, t) * fpow(Math.E, DEFECT_K * (ratio - DEFECT_R0));
     if (!borders(v, L) && !borders(L, v)) odds *= DEFECT_FAR;
     if (pm.polities[v].culture !== pm.polities[L].culture) odds *= DEFECT_FOREIGN;
+    const oddsIn = sim.influence?.get('defect.odds');
+    if (oddsIn) odds = oddsTimes(odds, oddsIn, v);
     if (keyed(dm.base, pm.ptag[v], k, U_DEFECT) >= odds / (1 + odds)) return false;
     record('defect', { a: v, b: L, region: capRegion(v, t), settlement: capitalAt(pm.polities[v], t) });
     // 宗主发兵讨伐:接壤、没在和它打、没被下令和它结盟、手上的仗没打满、没被下令不许扩张
@@ -493,7 +498,9 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     // 有够分量的盟国撑腰就不称臣
     const pq = powerOf(q, t);
     for (const z of dm.alliesOf(p)) if (powerOf(z, t) >= 0.5 * pq) return false;
-    const odds = SUBMIT_ODDS * fpow(ratio / SUBMIT_RATIO, SUBMIT_EXP) * pm.polities[q].expansionism;
+    const odds0 = SUBMIT_ODDS * fpow(ratio / SUBMIT_RATIO, SUBMIT_EXP) * pm.polities[q].expansionism;
+    const oddsIn = sim.influence?.get('submit.odds');
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, p) : odds0;
     if (keyed(dm.base, pm.ptag[p], k, U_SUBMIT) >= odds / (1 + odds)) return false;
     swear(p, q, t);
     return true;
@@ -525,7 +532,9 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
       }
     }
     if (best < 0) return false;
-    const odds = PACT_ODDS * Math.sqrt(Math.max(ratio, 1) / THREAT) * (cowar ? PACT_COWAR : 1);
+    const odds0 = PACT_ODDS * Math.sqrt(Math.max(ratio, 1) / THREAT) * (cowar ? PACT_COWAR : 1);
+    const oddsIn = sim.influence?.get('alliance.odds');
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, p) : odds0;
     if (keyed4(dm.base, pm.ptag[p], pm.ptag[best], k, U_PACT) >= odds / (1 + odds)) return false;
     const sid = capitalAt(pm.polities[p], t);
     record('alliance', { a: p, b: best, region: pm.settlements[sid].region, settlement: sid, foe: f });
@@ -565,12 +574,14 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
 
   /** x 向 y 宣战(不是援盟)之后:y 的盟国援盟 / 坐视不救,y 的宗主发兵来救 */
   api.war.onDeclare = (w: War, x: number, y: number, t: number) => {
+    const aidIn = sim.influence?.get('aid.odds');
     for (const z of dm.alliesOf(y)) {
       // 国家方针(policy.ts):z 把攻方当亲国的不出兵(盟约不断);把守方当亲国的更肯出兵,当仇国的不救(盟约就此断了)
       if (z === x || !alive(z) || friendly(z, x, t) || befriends(pm, z, x, t) || fighting(z, x) || halted(z, t) || busy(z) || !borders(z, x)) continue;
       let join = hates(pm, z, y, t) ? 0 : befriends(pm, z, y, t) ? FRIEND_JOIN : PACT_JOIN;
       // 结着亲的更肯出兵(marriage.ts)
       if (join > 0 && api.diplomacy.bond) join *= 1 + (KIN_JOIN - 1) * api.diplomacy.bond(z, y, t);
+      if (aidIn) join *= mulOf(aidIn, z);
       if (keyed4(dm.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_JOIN) < join) api.war.declare!(z, x, t, y, 'ally');
       else record('unally', { a: z, b: y, war: w.id, cause: 'abandon' });
     }
@@ -675,18 +686,28 @@ export function polityTies(civ: Civ, id: number, year: Year): PolityTies {
   const vassals = [...r.liege].filter(([, x]) => x.liege === id).map(([v, x]) => ({ id: v, since: x.since }));
   const allies = r.pacts.filter((x) => x.a === id || x.b === id).map((x) => ({ id: x.a === id ? x.b : x.a, since: x.since, foe: x.foe }));
   const P = civ.polities[id];
-  for (const v of civ.interventions ?? []) {
+  const ivs = civ.interventions ?? [];
+  const at = (v: Intervention) => v.from + (v.fromTick ?? 0) / YEAR_TICKS;
+  const pairOf = (v: { a: string; b: string }) => [resolveKey(civ, v.a), resolveKey(civ, v.b)].map((k) => (k?.kind === 'polity' ? k.id : -1));
+  const cuts = (u: Intervention, k: number, a: number, b: number): boolean => {
+    if (u.kind === 'unally') return pairOf(u).sort().join() === [a, b].sort().join();
+    if (u.kind !== 'submit' || !civ.annals.some((e) => e.kind === 'intervene' && e.war === k && e.n === 1)) return false;
+    const x = resolveKey(civ, u.a);
+    return x?.kind === 'polity' && (x.id === a || x.id === b);
+  };
+  ivs.forEach((v, i) => {
     // 结盟从下令那一刻起(年中下的带着第几格)
-    const from = v.from + (v.fromTick ?? 0) / YEAR_TICKS;
-    if (v.kind !== 'ally' || year < from || (v.until !== undefined && year >= v.until)) continue;
-    const a = resolveKey(civ, v.a);
-    const b = resolveKey(civ, v.b);
-    if (a?.kind !== 'polity' || b?.kind !== 'polity' || (a.id !== id && b.id !== id)) continue;
-    const o = a.id === id ? b.id : a.id;
+    const from = at(v);
+    if (v.kind !== 'ally' || year < from || (v.until !== undefined && year >= v.until)) return;
+    const [a, b] = pairOf(v);
+    if (a < 0 || b < 0 || (a !== id && b !== id)) return;
+    // 推演插件结的盟被它后面的断盟命令、办成了的称臣命令断了(interventions.ts 的 cut)
+    if (isCommand(v) && ivs.some((u, k) => k > i && at(u) <= year && cuts(u, k, a, b))) return;
+    const o = a === id ? b : a;
     const O = civ.polities[o];
-    if (o === id || !P || !O || !polityAlive(P, year) || !polityAlive(O, year) || allies.some((x) => x.id === o)) continue;
+    if (o === id || !P || !O || !polityAlive(P, year) || !polityAlive(O, year) || allies.some((x) => x.id === o)) return;
     allies.push({ id: o, since: Math.max(from, O.founded, P.founded), foe: -1 });
-  }
+  });
   return { liege: r.liege.get(id), vassals, allies };
 }
 

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { coverUrl, fetchWork, isWorkGone, loadGallery, reportWork, useGallery, wasReported, type GalleryWork } from '../../account/gallery';
 import { serverBase } from '../../account/server';
+import { permissionFooter, permissionLines } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PluginFileError } from '../../plugin/pluginFile';
 import { listPlugins, type InstalledPlugin } from '../../plugin/pluginStore';
 import { Dialog } from '../AccountDialogs';
@@ -88,13 +89,27 @@ function TrialTag() {
   );
 }
 
-/** 「插件」页签:电脑四列,手机一行一个 */
-export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryWork[]; phone: boolean; onOpen: (w: GalleryWork) => void }) {
+/** 「插件」页签:电脑四列,手机一行一个。搜的时候 works 只是搜到的几个、wall 是作品墙上全部的(记各插件的版本要全的),hl 把搜到的字标出来 */
+export function PluginCards({
+  works,
+  wall = works,
+  phone,
+  onOpen,
+  hl,
+}: {
+  works: readonly GalleryWork[];
+  wall?: readonly GalleryWork[];
+  phone: boolean;
+  onOpen: (w: GalleryWork) => void;
+  hl?: (s: string) => ReactNode;
+}) {
   useVerdicts();
   const list = useInstalled();
-  useEffect(() => noteWall(works), [works]);
+  useEffect(() => noteWall(wall), [wall]);
   const items = wallPlugins(works).filter(({ p }) => !verdictOf(p.sum, p.id).blocked);
   if (!items.length) return <p className="gl-none">还没有插件</p>;
+  const t = (s: string) => (hl ? hl(s) : s);
+  const found = hl ? ' found' : '';
   return (
     <div className={phone ? 'pw-list' : 'gl-grid'} role="list" data-testid="gallery-plugins">
       {items.map(({ w, p }) => {
@@ -105,26 +120,26 @@ export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryW
         const bg = cover ? { backgroundImage: `url("${cover}")` } : undefined;
         if (phone)
           return (
-            <button key={w.id} className="gl-card pw-card pw-row" role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
+            <button key={w.id} className={`gl-card pw-card pw-row${found}`} role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
               <span className="gl-cover" style={bg} />
               <span className="pw-body">
                 <span className="pw-head">
                   <PluginIcon src={iconUrl(w, p)} size="sm" className="pw-ic" />
-                  <b className="gl-name">{title}</b>
+                  <b className="gl-name">{t(title)}</b>
                   <span className="plg-tag">{versionLabel(p.version)}</span>
                   {usesExperimental(p) && <TrialTag />}
                   {have && <span className="plg-tag ok">已装上</span>}
                 </span>
                 <span className="gl-by">
-                  {w.by ? `${w.by}，` : ''}开源 {p.license}
+                  {w.by && <>{t(w.by)}，</>}开源 {p.license}
                 </span>
-                {blurb && <span className="gl-blurb">{blurb}</span>}
+                {blurb && <span className="gl-blurb">{t(blurb)}</span>}
                 <Caps p={p} />
               </span>
             </button>
           );
         return (
-          <button key={w.id} className="gl-card pw-card" role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
+          <button key={w.id} className={`gl-card pw-card${found}`} role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
             <span className="gl-cover" style={bg}>
               <span className="gl-tags">
                 <span className="gl-tag">插件</span>
@@ -140,18 +155,18 @@ export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryW
               <PluginIcon src={iconUrl(w, p)} size="md" className="pw-ic" />
               <span className="pw-tt">
                 <span className="gl-row1">
-                  <b className="gl-name">{title}</b>
+                  <b className="gl-name">{t(title)}</b>
                   <span className="gl-at">{dayText(p.updatedAt || w.addedAt)}</span>
                 </span>
                 <span className="gl-by pw-by">
-                  {w.by}
+                  {hl ? <span>{hl(w.by)}</span> : w.by}
                   <span className="plg-tag">{versionLabel(p.version)}</span>
                   <span className="plg-tag ok">审过</span>
                   {usesExperimental(p) && <TrialTag />}
                 </span>
               </span>
             </span>
-            {blurb && <span className="gl-blurb">{blurb}</span>}
+            {blurb && <span className="gl-blurb">{t(blurb)}</span>}
             <Caps p={p} license />
           </button>
         );
@@ -410,7 +425,7 @@ export function PluginWorkDialog({
     <Dialog phone={phone} label={label} width={600} onClose={onClose} head={<span />} testId="gallery-plugin" className="gl-pdlg pw-dlg" inPlace={inPlace}>
       <div className="pw-scroll">
         <div className="gl-pcover pw-cover" style={cover ? { backgroundImage: `url("${cover}")` } : undefined}>
-          {seed !== undefined && <span className="pw-shot">审核时在种子 {seed} 上跑出来的样子</span>}
+          {seed !== undefined && <span className="pw-shot">在种子 {seed} 上试跑的样子</span>}
           {shots.length > 1 && (
             <span className="pw-dots">
               {shots.map((s, i) => (
@@ -419,6 +434,10 @@ export function PluginWorkDialog({
             </span>
           )}
           {close}
+        </div>
+        <div className="pw-band">
+          <Icon name="lock" size={15} />
+          <span>{permissionFooter(permissionLines(p), p.role)}</span>
         </div>
         <div className="acct-body">
           <div className="pw-title">
@@ -438,7 +457,7 @@ export function PluginWorkDialog({
           </div>
           {(w.blurb || p.description) && <p className="pw-blurb">{w.blurb || p.description}</p>}
           <div className="plg-sec">它要用到</div>
-          <Perms m={p} />
+          <Perms m={p} safe={false} />
           <div className="plg-sec">版本和文件</div>
           <div className="plg-grp plg-kv pw-kv" data-testid="plugin-versions">
             {vers.slice(0, phone ? 2 : 3).map((v, i) => (

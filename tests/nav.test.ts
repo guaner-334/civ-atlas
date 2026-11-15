@@ -3,7 +3,7 @@
  * 浏览器的 history.go 是过一会儿才到的(popstate),假的也一样:flush() 才到。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { _resetNav, getNav, navAdopt, navBack, navLayer, navMark, navPushEarly, navReplace, navSettled, navTitle, navTo, navUrl, startNav, tidyUrl, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
+import { _resetNav, getNav, navAdopt, navBack, navLayer, navMark, navPushEarly, navReplace, navSettled, navTitle, navTo, navUrl, navWorkOf, startNav, tidyUrl, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
 
 class FakeHistory {
   list: { state: unknown; url: string }[] = [{ state: null, url: '/' }];
@@ -487,5 +487,79 @@ describe('作品墙那一页的网址写成 ?gallery', () => {
     navMark({ page: 'gallery' });
     navUrl(`?${new URLSearchParams('gallery&proj=robinson')}`);
     expect(h.list[0].url).toBe('?gallery&proj=robinson');
+  });
+});
+
+describe('作品墙上的作品打开以后(刷新回到世界 / 星球的记号)', () => {
+  /** 换画面时照 App 那样调 navTo,带上这一步记着的样子 */
+  function wallApp() {
+    const seen: (string | undefined)[] = [];
+    const hooks: NavHooks = {
+      route(to) {
+        seen.push(to.work);
+        navTo({ page: to.page, id: to.id, ...(to.work ? { work: to.work } : {}) });
+      },
+      describe: () => ({}),
+      settled: () => null,
+      apply: (l) => l,
+    };
+    return { hooks, seen };
+  }
+
+  it('开着窗的那一步没有记号;窗里进世界、「看看这颗星球」各新记一步,记号在那一步里', () => {
+    const a = wallApp();
+    startNav({ page: 'home' }, a.hooks);
+    navTo({ page: 'gallery', id: 'k7qm2xpa' });
+    expect(navWorkOf(h.state)).toBeUndefined();
+    navTo({ page: 'world', id: 'W1', work: 'world' });
+    expect(h.list.length).toBe(3);
+    expect(navWorkOf(h.state)).toBe('world');
+    expect(navWorkOf(h.list[1].state)).toBeUndefined();
+    // 后退回到开着窗的那一步;同一个作品看看星球:同一页、同一个编号也新记一步
+    h.back();
+    expect(a.seen).toEqual([undefined]);
+    expect(at()).toMatchObject({ page: 'gallery', id: 'k7qm2xpa' });
+    navTo({ page: 'gallery', id: 'm3np8rta' });
+    navTo({ page: 'gallery', id: 'm3np8rta', work: 'map' });
+    expect(navWorkOf(h.state)).toBe('map');
+    expect(at()).toMatchObject({ page: 'gallery', id: 'm3np8rta', idx: 3 });
+  });
+
+  it('后退回到窗、前进回到星球:换画面时这一步记着的样子跟着交给 App,记号留在原来那一步', () => {
+    const a = wallApp();
+    startNav({ page: 'gallery', id: 'm3np8rta' }, a.hooks);
+    navTo({ page: 'gallery', id: 'm3np8rta', work: 'map' });
+    h.back();
+    expect(navWorkOf(h.state)).toBeUndefined();
+    h.forward();
+    expect(a.seen).toEqual([undefined, 'map']);
+    expect(navWorkOf(h.state)).toBe('map');
+    // 星球上又点了「‹ 作品墙」:新的一步没有记号
+    navTo({ page: 'gallery' });
+    expect(navWorkOf(h.state)).toBeUndefined();
+    expect(navWorkOf(h.list[1].state)).toBe('map');
+  });
+
+  it('刷新:history.state 里的记号还在,打开网页时这一步照旧记着它;世界取完换成世界那一步也留着', () => {
+    const a = wallApp();
+    startNav({ page: 'home' }, a.hooks);
+    navTo({ page: 'gallery', id: 'k7qm2xpa' });
+    navTo({ page: 'world', id: 'W1', work: 'world' });
+    _resetNav();
+    const was = navWorkOf(h.state);
+    expect(was).toBe('world');
+    startNav({ page: 'gallery', id: 'k7qm2xpa', work: was }, a.hooks);
+    expect(at()).toMatchObject({ page: 'gallery', id: 'k7qm2xpa', work: 'world', idx: 2, prev: true });
+    navReplace({ page: 'world', id: 'W2', work: 'world' });
+    expect(navWorkOf(h.state)).toBe('world');
+    expect(h.list.length).toBe(3);
+  });
+
+  it('不是这个网站记的、没有记号、记号认不出:都当没有(先到介绍窗)', () => {
+    expect(navWorkOf(null)).toBeUndefined();
+    expect(navWorkOf({ work: 'world' })).toBeUndefined();
+    expect(navWorkOf({ wf: 1, idx: 0, page: 'gallery', bare: 0, prev: false })).toBeUndefined();
+    expect(navWorkOf({ wf: 1, idx: 0, page: 'gallery', bare: 0, prev: false, work: 'film' })).toBeUndefined();
+    expect(navWorkOf({ wf: 1, idx: 0, page: 'world', bare: 0, prev: false, work: 'world' })).toBe('world');
   });
 });

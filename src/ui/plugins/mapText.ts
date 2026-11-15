@@ -7,10 +7,10 @@ export const isMap = (m: { role: string }): boolean => m.role === 'map';
 /** 一个世界最多几个地图插件 */
 export const MAP_PICK_MAX = 4;
 
-/** 三个口子的叫法(按出手的先后) */
-export const MAP_STAGE_TEXT: Readonly<Record<string, string>> = { height: '改海拔', climate: '改气候', layers: '出图层' };
-const STAGE_WHEN: Readonly<Record<string, string>> = { height: '海拔定下以后', climate: '气温降水算好以后', layers: '地图长好以后' };
-const ORDER = ['height', 'climate', 'layers'];
+/** 各个口子的叫法(按出手的先后) */
+export const MAP_STAGE_TEXT: Readonly<Record<string, string>> = { height: '改海拔', climate: '改气候', seaice: '改海冰', runoff: '改水系', layers: '出图层' };
+const STAGE_WHEN: Readonly<Record<string, string>> = { height: '海拔定下以后', climate: '气温降水算好以后', seaice: '海冰算好以后', runoff: '汇成河之前', layers: '地图长好以后' };
+const ORDER = ['height', 'climate', 'seaice', 'runoff', 'layers'];
 
 const stagesOf = (map: Pick<MapManifest, 'stages'>): string[] => [...map.stages].sort((a, b) => (ORDER.indexOf(a) + 1 || 9) - (ORDER.indexOf(b) + 1 || 9));
 const stageText = (k: string) => MAP_STAGE_TEXT[k] ?? k;
@@ -31,11 +31,15 @@ export function mapRows(map: MapManifest, phone: boolean): AddsRow[] {
   const when: AddsRow = phone ? { k: '哪一步', v: stages.map(stageText).join('、') } : { k: '在哪一步出手', v: stages.map((k) => (STAGE_WHEN[k] ? `${stageText(k)}（${STAGE_WHEN[k]}）` : stageText(k))).join('、') };
   const height = stages.includes('height');
   const climate = stages.includes('climate');
-  const after = height ? ['湖', '气候', '河', '森林草原沙漠', '文明'] : [...(phone ? [] : ['海冰']), '河', '森林草原沙漠', '文明'];
-  const what: AddsRow =
-    height || climate
-      ? { k: '会改什么', v: [...(height ? ['海拔（跨过海平面的地方海陆跟着变）'] : []), ...(climate ? ['气温、降水'] : [])].join('；'), small: `后面的${after.join('、')}跟着变` }
-      : { k: '会改什么', v: '不改地图' };
+  const seaice = stages.includes('seaice');
+  const runoff = stages.includes('runoff');
+  const after = height
+    ? ['湖', '气候', '河', '森林草原沙漠', '文明']
+    : climate
+      ? [...(phone ? [] : ['海冰']), '河', '森林草原沙漠', '文明']
+      : [...(runoff ? ['河', '湿地'] : []), ...(seaice ? ['海上航路'] : []), '文明'];
+  const changes = [...(height ? ['海拔（跨过海平面的地方海陆跟着变）'] : []), ...(climate ? ['气温、降水'] : []), ...(seaice ? ['海冰'] : []), ...(runoff ? ['每块产多少水'] : [])];
+  const what: AddsRow = changes.length ? { k: '会改什么', v: changes.join('；'), small: `后面的${after.join('、')}跟着变` } : { k: '会改什么', v: '不改地图' };
   const layers = map.layers ?? [];
   const layer: AddsRow = layers.length
     ? { k: '图层', v: `${phone ? '' : `${layers.length} 张：`}${layers.map((l) => `「${l.title}」${l.classes?.length ? `（${l.classes.length} 类）` : ''}`).join('')}`, small: '存进世界，在图层面板「插件图层」里' }
