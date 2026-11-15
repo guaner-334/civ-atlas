@@ -648,7 +648,9 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     if (r0 < 0) return false;
     // 有了电报的,地方有变朝廷当日即知:赔率再乘 WIRE_LORD
     const wire = hasPractice(practices(p, t), Practice.Wire) ? WIRE_LORD : 1;
-    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1) * (cm.lordOdds?.(p, t) ?? 1) * wire;
+    const odds0 = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1) * (cm.lordOdds?.(p, t) ?? 1) * wire;
+    const oddsIn = sim.influence?.get('warlord.odds');
+    const odds = oddsIn ? odds0 * mulOf(oddsIn, p) : odds0;
     if (keyed(cm.base, pm.ptag[p], k, U_RISE) >= odds / (1 + odds)) return false;
     rise(p, r0, t);
     return true;

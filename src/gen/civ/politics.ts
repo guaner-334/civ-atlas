@@ -579,7 +579,9 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
       }
     }
     if (A < 0 || atWar(A)) return false;
-    const odds = MERGE_ODDS * Math.sqrt(pm.size[A] / (MERGE_RATIO * nB));
+    const odds0 = MERGE_ODDS * Math.sqrt(pm.size[A] / (MERGE_RATIO * nB));
+    const oddsIn = sim.influence?.get('merge.odds');
+    const odds = oddsIn ? odds0 * mulOf(oddsIn, bid) : odds0;
     if (keyed(pol.base, pm.ptag[bid], k, U_MERGE) >= odds / (1 + odds)) return false;
     // 藩属并入自己的宗主:和邦交里的纳土归附一样记 cause = vassal(编年史写"纳土归附")
     const vassal = wm.dm?.liegeOf(bid) === A;
@@ -737,7 +739,10 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
         c = r;
       }
     }
-    if (c < 0 || keyed(pol.base, pm.ptag[fid], k, U_RESTORE) >= bestOdds / (1 + bestOdds)) return false;
+    if (c < 0) return false;
+    const oddsIn = sim.influence?.get('restore.odds');
+    if (oddsIn) bestOdds *= mulOf(oddsIn, fid);
+    if (keyed(pol.base, pm.ptag[fid], k, U_RESTORE) >= bestOdds / (1 + bestOdds)) return false;
     const o = owner[c];
     // 以故都为中心,连同周围的同族州(由近及远,只走陆路)
     const limit = Math.min(RESTORE_MAX_GROUP, Math.max(RESTORE_MIN_GROUP, Math.floor(pm.size[o] * RESTORE_FRAC)));

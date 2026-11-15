@@ -30,7 +30,11 @@
 
 ## 还没发布(测试网站上已经有)
 
-暂无。
+### 加了
+
+- 推演插件的影响口(`sim.influence@1`)又开 14 个,都按国交:`revolt.odds`(民变)、`collapse.odds`(大崩解)、`claim.odds`(宗室争位)、`warlord.odds`(新起割据)、`merge.odds`(小国并入同族大国)、`restore.odds`(复国)、`alliance.odds`(结盟)、`submit.odds`(称臣)、`defect.odds`(藩属自立)、`treaty.odds`(立约)、`marry.odds`(结亲)、`aid.odds`(援盟)乘在几率上,0–4;`war.length`(一场仗最多打几年)、`war.goal`(一场仗想拿下几州)按攻方乘,0.25–4。各自按哪一国、管哪一处,见[影响口](sim.md#影响口siminfluence1)
+  - 读口 `read.wars()` 里还在打的仗的 `goal`、`length` 把插件交给 `war.goal`、`war.length` 的倍数乘上了(交了 `war.goal` 的,`goal` 可能带小数)
+  - 这一版网站存的、带推演插件的世界,在旧版网站上照样打得开、看得了,只是接着推要从第 0 年推起
 
 ## 网站 1.7.0(2026 年 11 月 15 日发布)
 
