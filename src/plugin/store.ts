@@ -7,7 +7,7 @@ import { argsOf, bad, int, isRec, over } from './check';
 import { approxBytes } from './protocol';
 import type { StoredData } from './types';
 
-export const STORE_LOCAL_MAX = 64 * 1024;
+export const STORE_LOCAL_MAX = 1024 * 1024;
 export const STORE_WORLD_MAX = 1024 * 1024;
 const DEPTH_MAX = 32;
 const SCHEMA_MAX = 1e9;

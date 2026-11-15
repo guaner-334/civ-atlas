@@ -2784,7 +2784,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
           />
         )}
         {/* 插件交来的标注(路线、框、点;地球仪上也画):在作者标记下面 */}
-        {data && world && pluginsUiOn() && <PluginMarksSlot world={data.world} api={markApi} />}
+        {data && world && pluginsUiOn() && <PluginMarksSlot world={data.world} api={markApi} end={civ?.endYear} />}
         {/* 作者标记(图钉、圈的州;地球仪上也画):在地名、地球仪上面 */}
         {data && world && <MarkLayer civ={civ} world={data.world} api={markApi} hidden={replayOn || draft || home} style={style} />}
         {/* 作者的人物一生的足迹(选中一个人物时;地球仪上也画):在标记上面 */}

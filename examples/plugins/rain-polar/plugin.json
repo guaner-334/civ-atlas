@@ -1,0 +1,25 @@
+{
+  "id": "rain-polar",
+  "name": "雨影与极地",
+  "version": "1.0.0",
+  "role": "map",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["gen.height@1", "gen.climate@1"],
+  "why": {
+    "gen.height@1": "按滑条把北极、南极改成海或陆地",
+    "gen.climate@1": "高山背风那一侧少下雨，迎风坡多下一点"
+  },
+  "map": {
+    "stages": ["height", "climate"],
+    "params": {
+      "shadow": { "label": "雨影", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "north": { "label": "北极", "min": -1, "max": 1, "default": 0, "step": 0.1 },
+      "south": { "label": "南极", "min": -1, "max": 1, "default": 0, "step": 0.1 },
+      "polar": { "label": "极区从几度起", "min": 60, "max": 80, "default": 70, "step": 1 }
+    }
+  },
+  "description": "高山背风那一侧少下雨，迎风坡多下一点；北极、南极可以按滑条改成海或陆地。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

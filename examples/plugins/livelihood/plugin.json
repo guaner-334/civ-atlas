@@ -1,0 +1,46 @@
+{
+  "id": "livelihood",
+  "name": "民生与时代",
+  "version": "1.0.0",
+  "role": "sim",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["sim.read@1", "sim.events@1", "sim.tables@1", "sim.influence@1", "sim.commands@1"],
+  "why": {
+    "sim.read@1": "看各州的物产、发展度、地貌、归属，各国的国都",
+    "sim.tables@1": "每州记一个技术积累：从生产、信息攒起来，向邻州拉平",
+    "sim.influence@1": "粮多的州人口上限高；技术跟不上的州发展慢；工业时代以后城的人口上限高",
+    "sim.commands@1": "国都到了工业时代的国，把挨着的、没有主的荒漠、苔原、冰原州收进版图"
+  },
+  "sim": {
+    "every": 5,
+    "tables": [
+      { "id": "prod", "name": "生产", "unit": "region", "input": true, "min": 0, "max": 10, "off": 0 },
+      { "id": "info", "name": "信息", "unit": "region", "input": true, "min": 0, "max": 10, "off": 0 },
+      {
+        "id": "tech",
+        "name": "技术",
+        "unit": "region",
+        "every": 5,
+        "min": 0,
+        "max": 1000000,
+        "off": 0,
+        "init": 0,
+        "consts": { "gain": 0.002, "even": 0.02 },
+        "rate": "gain * (prod + info) / 2 + if(nbcount(1) > 0, even * (nbmean(nb.tech) - tech), 0)"
+      }
+    ],
+    "inputs": { "prod": "dev.production", "info": "dev.information" },
+    "influences": ["city.capacity", "rural.capacity", "dev.rate"],
+    "commands": ["cede"],
+    "params": {
+      "grain": { "label": "粮养人", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "tech": { "label": "技术门槛", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "metro": { "label": "后世大城", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "frontier": { "label": "近现代拓荒", "min": 0, "max": 3, "default": 1, "step": 0.1 }
+    }
+  },
+  "description": "粮多的地方人多；技术跟不上的州发展慢；工业时代以后城更大，挨着的荒漠、苔原、冰原有人去占。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

@@ -243,12 +243,23 @@ export class TrialRecorder {
       notes: () => [],
       view: () => this.view,
       pick: (req) => this.pick(req),
+      // 试跑时当用的人不存、不给
+      saveFile: () => (this.touch(), Promise.resolve(false)),
+      openFile: () => (this.touch(), Promise.resolve(null)),
       commit: (_next, keys) => {
         this.touch();
         this.blocked++;
         for (const k of keys) this.blockedKeys.add(k);
         return '试跑的时候不改你写的东西';
       },
+      // 截图照试跑的年份画:翻年份只改 view.get 拿到的
+      seek: (year) => {
+        this.touch();
+        this.view.year = year;
+        return null;
+      },
+      fly: () => (this.touch(), null),
+      highlight: () => this.touch(),
     };
   }
 

@@ -602,13 +602,13 @@ export function drawExportMarks(
   return layout.pins.length + layout.areas.length;
 }
 
-/** 插件交来的标注图层(和屏幕上一样的线、点、小牌),画在最上面。返回画了几项 */
-export function drawExportPluginMarks(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, layers: readonly MarkLayer[]): number {
+/** 插件交来的标注图层(和屏幕上一样的线、点、小牌),画在最上面;year = 带年份的项按哪一年挑(不给 = 都画)。返回交来几项 */
+export function drawExportPluginMarks(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, layers: readonly MarkLayer[], year?: number): number {
   if (!layers.length) return 0;
   const { frame, m } = exportMarkFrame(p, { s: S, dpr: S });
   ctx.save();
   ctx.scale(m, m);
-  drawPluginMarks(ctx, layers, frame, p.world.mesh);
+  drawPluginMarks(ctx, layers, frame, p.world.mesh, year);
   ctx.restore();
   return layers.reduce((n, l) => n + l.items.length, 0);
 }
