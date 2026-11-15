@@ -2,10 +2,11 @@
  * 地图插件清单 map.reads 能写的名字:写了才递,和这个数从哪一口起才有。
  * 读清单的代码和生成线程都用,所以单放一个不带别的代码的文件
  */
-type Stage = 'height' | 'climate' | 'layers';
+type Stage = 'height' | 'climate' | 'seaice' | 'runoff' | 'layers';
 
-const ALL: readonly Stage[] = ['height', 'climate', 'layers'];
-const FROM_CLIMATE: readonly Stage[] = ['climate', 'layers'];
+const ALL: readonly Stage[] = ['height', 'climate', 'seaice', 'runoff', 'layers'];
+const FROM_CLIMATE: readonly Stage[] = ['climate', 'seaice', 'runoff', 'layers'];
+const FROM_RUNOFF: readonly Stage[] = ['runoff', 'layers'];
 const LAYERS: readonly Stage[] = ['layers'];
 
 export const MAP_READS: Readonly<Record<string, readonly Stage[]>> = {
@@ -27,7 +28,7 @@ export const MAP_READS: Readonly<Record<string, readonly Stage[]>> = {
   currentU: FROM_CLIMATE,
   currentV: FROM_CLIMATE,
   currentTemp: FROM_CLIMATE,
-  downstream: LAYERS,
+  downstream: FROM_RUNOFF,
   fillLevel: LAYERS,
   runoff: LAYERS,
   wetland: LAYERS,

@@ -310,7 +310,7 @@ ${COMMON}
   function map(d) {
     if (!open) throw new Err('civAtlas.map 只能在插件代码的顶层调用');
     if (def) throw new Err('civAtlas.map 只能调用一次');
-    if (d === null || typeof d !== 'object') throw new TErr('civAtlas.map 要给一个对象,里面是各步的函数(height、climate、layers)');
+    if (d === null || typeof d !== 'object') throw new TErr('civAtlas.map 要给一个对象,里面是各步的函数(height、climate、seaice、runoff、layers)');
     def = d;
   }
   const params = freeze(parse(paramsJson));

@@ -315,7 +315,7 @@ interface GenTally {
   rivers: number;
 }
 
-const GEN_STAGE: Record<string, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+const GEN_STAGE: Record<string, string> = { height: '改海拔', climate: '改气候', seaice: '改海冰', runoff: '改水系', layers: '出图层' };
 /** 日志一行左边:哪一步(装插件时打的写「装的时候」) */
 export const devGenStage = (s: string | null): string => (s === null ? '装的时候' : (GEN_STAGE[s] ?? s));
 /** 一口超过这么久(毫秒)那格标黄 */

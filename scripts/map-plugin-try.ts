@@ -55,7 +55,7 @@ for (const f of files) {
 }
 console.log(`种子 ${seed},${cells} 块`);
 
-const STAGE: Record<MapStage, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+const STAGE: Record<MapStage, string> = { height: '改海拔', climate: '改气候', seaice: '改海冰', runoff: '改水系', layers: '出图层' };
 const spent: string[] = [];
 let total = 0;
 class Clock extends MapClock {

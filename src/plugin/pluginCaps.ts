@@ -65,6 +65,8 @@ export const PLUGIN_CAPS: ReadonlyMap<string, PermissionKey | null> = new Map<st
   ['sim.commands@1', 'simSteer'],
   ['gen.height@1', 'mapSteer'],
   ['gen.climate@1', 'mapSteer'],
+  ['gen.seaice@1', 'mapSteer'],
+  ['gen.runoff@1', 'mapSteer'],
   ['gen.layers@1', 'layer'],
 ]);
 
