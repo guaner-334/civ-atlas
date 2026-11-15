@@ -240,6 +240,30 @@
   line-height: 1.6;
   color: var(--ink-2);
 }
+/* 跨过第 3000 年那一次的提醒:浅橙底 + 小三角 */
+.xt-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.xt-warn .icon {
+  flex: none;
+  margin-top: 2px;
+  color: #c96a00;
+}
+[data-theme='dark'] .xt-warn {
+  background: rgba(255, 159, 10, 0.16);
+}
+[data-theme='dark'] .xt-warn .icon {
+  color: var(--warn);
+}
 .xt-foot {
   display: flex;
   align-items: center;

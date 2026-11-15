@@ -1322,14 +1322,8 @@
   line-height: 1.45;
   color: var(--err);
 }
-.sk-body > .sk-params + .sb-row,
-.sk-body > .nw-years-note + .sb-row,
-.sk-body > .nw-years-note + .sk-params {
+.sk-body > .sk-params + .sb-row {
   border-top: 0.5px solid var(--line);
-}
-/* 推演到:数字写"10000 年",比别的宽 */
-.sk-pr[data-param='endYear'] > .pf {
-  width: 80px;
 }
 .sk-name {
   padding: 10px 12px 0;

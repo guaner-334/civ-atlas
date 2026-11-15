@@ -1,6 +1,6 @@
 /**
  * 要打开的世界(Target)和围着它的几样小东西,App 和 ./useWorldLoad.ts 都用:
- *   - Target 从哪来:存着的(storedTarget)、新建中的(draftTarget、yearsEdits)、朋友的预设链接打开的新建弹窗(presetDialog)
+ *   - Target 从哪来:存着的(storedTarget)、新建中的(draftTarget、startEdits)、朋友的预设链接打开的新建弹窗(presetDialog)
  *   - 写进网址:这个世界(writeWorldUrl)、回我的世界(writeHomeUrl)、作品墙(writeGalleryUrl)
  *   - 推文明的请求里带的地形大事、地名风格、推演年数、拓荒起源天灾规则(upsOpt、namesOpt、yearsOpt、setupOpt;这一步带哪些见 yearsFor、setupFor)
  *   - 打开网页时去哪(FirstRoute)、作品墙那一页(WallView)、新建弹窗、分享说明、世界作品、分享短链接那一页的状态类型
@@ -10,14 +10,14 @@ import type { Civ } from '../../gen/civ/types';
 import { polityAlive } from '../../gen/readers/openQuery';
 import { cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../../gen/civ/frontier';
-import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, keptMapOf, type Upheaval, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, endParamOf, keptMapOf, type Upheaval, type WorldEdits } from '../../gen/edits';
 import { newWorldRules, worldTuning, type RuleSet } from '../../gen/civ/ruleSet';
 import type { WorldTuning } from '../../gen/civ/tuning';
 import type { NameMix } from '../../gen/names/mix';
 import { GEN_KEY, worldKey, type ResolvedMoment, type SaveFile, type SaveMoment, type SaveOrigin, type SaveView } from '../../gen/savefile';
-import { galleryHref, type GalleryItem } from '../../account/gallery';
+import { galleryHref, type GalleryItem, type GalleryWork } from '../../account/gallery';
 import { AREA_KEYS } from '../areaLink';
-import { navUrl, type NavState } from '../nav';
+import { navUrl, type NavState, type NavWork } from '../nav';
 import type { NewWorldInit, NewWorldMode } from '../NewWorldDialog';
 import { OWN_KEY } from '../oldSite';
 import type { SharedPreset } from '../presetStore';
@@ -98,13 +98,16 @@ export interface Target {
 
 /**
  * 作品墙盖在我的世界的位置上(和分享停了那一页一样):
- *   list  作品墙那一页(shown = 开着的新建参数 / 规则作品,打开它的网址时)
- *   work  打开一个作品的网址:正在取 / 撤下了 / 取不到
+ *   list  作品墙那一页(shown = 开着窗的作品,打开它的网址时取好了的;opening = 开着窗的世界 / 地图作品,列表里那一项,窗里再取)
+ *   work  打开一个作品的网址:正在取 / 撤下了 / 取不到(enter = 刷新回到世界 / 星球时:取到了直接进,不开窗)
  *   map   地图作品:整屏一颗星球
  * 世界作品打开就是平常的世界(只是看看,左上一条写作品;见 App 的 workFor)
  */
 /** state 里 plugin = 撤下了的是插件:网站停用的原因(作者自己撤下的是空的) */
-export type WallView = { kind: 'list'; shown?: GalleryItem } | { kind: 'work'; id: string; state: WorkGoneState } | { kind: 'map'; work: GalleryItem };
+export type WallView =
+  | { kind: 'list'; shown?: GalleryItem; opening?: GalleryWork }
+  | { kind: 'work'; id: string; state: WorkGoneState; enter?: NavWork }
+  | { kind: 'map'; work: GalleryItem };
 export type WorkGoneState = 'loading' | 'gone' | { plugin: string } | { error: string };
 
 /** 打开网页时去哪(App 的 firstRoute 算一次):我的世界 / 新建 / 某个世界;gone = 要回的世界已经删掉了(世界名);dialog = 开着新建弹窗 */
@@ -149,12 +152,11 @@ export function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target
   };
 }
 
-/** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)、规则(官方 = 什么都没有;盖上现在的换算版本)的修改 */
-export function yearsEdits(endYear: number | undefined, frontier?: Frontier, rules?: RuleSet): WorldEdits {
-  const y = cleanEndYear(endYear);
+/** 新建时只定了拓荒(默认 = 什么都没有)、规则(官方 = 什么都没有;盖上现在的换算版本)的修改;推演年数不定,一律先推 3000 年 */
+export function startEdits(frontier?: Frontier, rules?: RuleSet): WorldEdits {
   const f = cleanFrontier(frontier);
   const r = newWorldRules(rules);
-  return y || f || r ? { ...EMPTY_EDITS, ...(y ? { endYear: y } : {}), ...(f ? { frontier: f } : {}), ...(r ? { rules: r } : {}) } : EMPTY_EDITS;
+  return f || r ? { ...EMPTY_EDITS, ...(f ? { frontier: f } : {}), ...(r ? { rules: r } : {}) } : EMPTY_EDITS;
 }
 
 /** 一个新建中的世界(还没动过) */
@@ -164,7 +166,7 @@ export function draftTarget(params: WorldParams, base: DraftBase | null = null, 
 
 /** 朋友的预设链接打开的新建弹窗:第 2 步(随机生成),参数照链接填好;没带种子的随机给一个 */
 export function presetDialog(p: SharedPreset): { init: NewWorldInit; shared: SharedPreset } {
-  return { init: { mode: 'random', params: { ...p.params, seed: p.seed ?? randomSeedValue() }, step: 2, endYear: p.endYear }, shared: p };
+  return { init: { mode: 'random', params: { ...p.params, seed: p.seed ?? randomSeedValue() }, step: 2 }, shared: p };
 }
 
 /**
@@ -189,10 +191,7 @@ export function writeWorldUrl(t: Target) {
   const w = isStored(t.id) ? loadWorld(t.id) : null;
   if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
   else if (t.kind === 'draft') q.set('new', draftModeOf(t) === 'image' && !t.edits.sketch?.image ? 'image' : '1');
-  // 还没存下的新建:弹窗里开的推演年数也写上(存下以后在存档里)
-  const years = q.has('new') ? cleanEndYear(t.edits.endYear) : undefined;
-  if (years) q.set('years', String(years));
-  else q.delete('years');
+  q.delete('years');
   // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么。
   // 网址来自更新的版本(页面是旧的)就留着那个号:刷新还是旧页面照样提示,换到新页面就对上了。
   // 新建中还没存的(new=1)不带:打开这种网址是接着新建,用的总是现在的版本
