@@ -319,6 +319,7 @@ export function columnProblem(c: unknown, taken: ReadonlySet<string>): string | 
   const o = (c !== null && typeof c === 'object' ? c : {}) as Partial<Record<keyof SimColumn, unknown>>;
   const id = o.id;
   if (typeof id !== 'string' || !COLUMN_ID.test(id)) return `数据栏的名字 ${String(id).slice(0, 64)} 只能用字母、汉字、数字、下划线,不以数字开头,最长 64 个字`;
+  if (isBadKey(id)) return `数据栏不能叫 ${id}`;
   if (taken.has(id)) return `数据栏 ${id} 和自己的表或别的数据栏重名`;
   if (!(COLUMN_UNITS as readonly unknown[]).includes(o.unit)) return `数据栏 ${id} 的 unit 只能是 ${COLUMN_UNITS.join('、')}`;
   if (!(isNum(o.min) && isNum(o.max) && o.min <= o.max && isNum(o.off))) return `数据栏 ${id} 要写上下限和没有值时等于几(有限的数,下限不大于上限)`;
