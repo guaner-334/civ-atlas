@@ -13,7 +13,12 @@ function work(o: Partial<GalleryWork>): GalleryWork {
 }
 
 const plugin = (o: Partial<GalleryWork>, p: Record<string, unknown> = {}) =>
-  work({ kind: 'plugin', version: null, ...o, plugin: { id: 'p', name: '', version: '1.0.0', sum: SUM, bytes: 1, requires: [], license: 'MIT', icon: false, updatedAt: '', note: '', versions: [], shots: [], ...p } });
+  work({
+    kind: 'plugin',
+    version: null,
+    ...o,
+    plugin: { id: 'p', name: '', version: '1.0.0', sum: SUM, bytes: 1, requires: [], license: 'MIT', icon: false, updatedAt: '', note: '', versions: [], shots: [], ...p },
+  });
 
 /** 拿框里的字搜这个作品 */
 const hits = (w: GalleryWork, q: string) => findHit(workTexts(w).map(fold), findKeys(findWords(q)));

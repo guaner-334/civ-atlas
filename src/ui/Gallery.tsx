@@ -219,9 +219,11 @@ function PageNote({ icon, title, lines, acts }: { icon: IconName; title: string;
 export type Tab = 'all' | WorkKind;
 /** 回到这一页还是上次看的页签 */
 let lastTab: Tab = 'all';
-/** 搜索框里的字:点开世界 / 地图作品再回来还在,别的时候离开这一页就清空 */
+/** 搜索框里的字:点开作品再回来还在,回到我的世界就清空 */
 let lastFind = '';
-let keepFind = false;
+export function forgetGalleryFind(): void {
+  lastFind = '';
+}
 
 export interface GalleryPageProps {
   phone: boolean;
@@ -252,12 +254,6 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
   // 打字时框先跟上,列表晚一步筛(搜索那块第一次下载时照旧摆着原来的列表)
   const q = useDeferredValue(find);
   const findRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    keepFind = false;
-    return () => {
-      if (!keepFind) lastFind = '';
-    };
-  }, []);
   const [howto, setHowto] = useState(false);
   const preset = shown?.kind === 'preset' ? shown : null;
   const [presetW, setPresetW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(preset ? { w: preset, item: preset } : null);
@@ -297,14 +293,7 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
     if (g.status === 'off') onHome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g.status]);
-  const open = (w: GalleryWork) => {
-    if (w.kind === 'preset') return setPresetW({ w });
-    if (w.kind === 'plugin') return setPluginW({ w });
-    if (w.kind === 'rules') return openRulesWork(w);
-    keepFind = true;
-    lastFind = find;
-    onOpen(w);
-  };
+  const open = (w: GalleryWork) => (w.kind === 'preset' ? setPresetW({ w }) : w.kind === 'plugin' ? setPluginW({ w }) : w.kind === 'rules' ? openRulesWork(w) : onOpen(w));
   const list = g.list;
 
   const homeBtn = (

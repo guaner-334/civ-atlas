@@ -88,11 +88,23 @@ function TrialTag() {
   );
 }
 
-/** 「插件」页签:电脑四列,手机一行一个;hl = 搜的时候把搜到的字标出来 */
-export function PluginCards({ works, phone, onOpen, hl }: { works: readonly GalleryWork[]; phone: boolean; onOpen: (w: GalleryWork) => void; hl?: (s: string) => ReactNode }) {
+/** 「插件」页签:电脑四列,手机一行一个。搜的时候 works 只是搜到的几个、wall 是作品墙上全部的(记各插件的版本要全的),hl 把搜到的字标出来 */
+export function PluginCards({
+  works,
+  wall = works,
+  phone,
+  onOpen,
+  hl,
+}: {
+  works: readonly GalleryWork[];
+  wall?: readonly GalleryWork[];
+  phone: boolean;
+  onOpen: (w: GalleryWork) => void;
+  hl?: (s: string) => ReactNode;
+}) {
   useVerdicts();
   const list = useInstalled();
-  useEffect(() => noteWall(works), [works]);
+  useEffect(() => noteWall(wall), [wall]);
   const items = wallPlugins(works).filter(({ p }) => !verdictOf(p.sum, p.id).blocked);
   if (!items.length) return <p className="gl-none">还没有插件</p>;
   const t = (s: string) => (hl ? hl(s) : s);

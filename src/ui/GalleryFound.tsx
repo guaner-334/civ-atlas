@@ -85,7 +85,7 @@ export function GalleryFound({ list, q, tabs, tab, phone, seg, onTab, onOpen, on
                   </div>
                 )}
                 <Suspense fallback={null}>
-                  <PluginCards works={plugins} phone={phone} onOpen={onOpen} hl={hl} />
+                  <PluginCards works={plugins} wall={list.plugins} phone={phone} onOpen={onOpen} hl={hl} />
                 </Suspense>
               </>
             )}
