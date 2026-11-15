@@ -520,6 +520,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (culture[r] === Y.culture) sy *= HOME_DEF;
     if (pm.settlements[capitalAt(Y, t)].region === r) sy *= CAPITAL_DEF;
     if (wm.iv?.protects(y, t)) sy *= PROTECT_DEF; // 阶段 4 干预"不许灭":守得格外牢
+    const defIn = sim.influence?.get('defense.power');
+    if (defIn) sy *= defIn[r];
     const a2 = sx * sx;
     const d2 = sy * sy;
     const p = a2 + d2 > 0 ? a2 / (a2 + d2) : 0.5;

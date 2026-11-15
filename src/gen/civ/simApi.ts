@@ -93,7 +93,15 @@ export type InfluenceName =
   | 'marry.odds'
   | 'aid.odds'
   | 'war.length'
-  | 'war.goal';
+  | 'war.goal'
+  | 'sack.odds'
+  | 'ruin.odds'
+  | 'rebuild.odds'
+  | 'defense.power'
+  | 'plague.spread'
+  | 'famine.odds'
+  | 'diverge.odds'
+  | 'trek.odds';
 
 export const INFLUENCE_NAMES: readonly InfluenceName[] = OFFICIAL_INFLUENCES.map((p) => p.id as InfluenceName);
 

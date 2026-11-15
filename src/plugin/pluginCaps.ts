@@ -165,6 +165,14 @@ export const SIM_INFLUENCE_TEXT: Readonly<Record<string, string>> = {
   'aid.odds': '援盟的几率（按国）',
   'war.length': '一场仗打多久（按国）',
   'war.goal': '一场仗想拿几州（按国）',
+  'sack.odds': '洗劫的几率（按州）',
+  'ruin.odds': '毁城的几率（按州）',
+  'rebuild.odds': '重建的几率（按州）',
+  'defense.power': '守这一州的兵力（按州）',
+  'plague.spread': '瘟疫传开的几率（按州）',
+  'famine.odds': '饥荒的几率（按州）',
+  'diverge.odds': '民族分化的几率（按州）',
+  'trek.odds': '大迁徙动身的几率（按州）',
 };
 
 /** 清单 sim.commands → 「宣战、结盟」 */

@@ -19,6 +19,7 @@ import { steady, type Point } from './lib/influencePlugins';
 /** 各版状态块里新能出现的影响口(第 1 版 = 一开始的那几个,不列);状态块再升版时在这里加一行 */
 const ADDED: Readonly<Record<number, readonly Point[]>> = {
   2: ['revolt.odds', 'collapse.odds', 'claim.odds', 'warlord.odds', 'merge.odds', 'restore.odds', 'alliance.odds', 'submit.odds', 'defect.odds', 'treaty.odds', 'marry.odds', 'aid.odds', 'war.length', 'war.goal'],
+  3: ['sack.odds', 'ruin.odds', 'rebuild.odds', 'defense.power', 'plague.spread', 'famine.odds', 'diverge.odds', 'trek.odds'],
 };
 const sinceOf = (id: string): number => Number(Object.keys(ADDED).find((v) => ADDED[+v].includes(id as Point)) ?? 1);
 /** 第 v 版新能出现的一个口(第 1 版拿 war.odds) */

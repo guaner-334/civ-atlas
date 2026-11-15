@@ -658,7 +658,15 @@ export type InfluenceName =
   | 'marry.odds'
   | 'aid.odds'
   | 'war.length'
-  | 'war.goal';
+  | 'war.goal'
+  | 'sack.odds'
+  | 'ruin.odds'
+  | 'rebuild.odds'
+  | 'defense.power'
+  | 'plague.spread'
+  | 'famine.odds'
+  | 'diverge.odds'
+  | 'trek.odds';
 
 /** 命令里指一国、一州、一城、一族:读口里的编号(只在这一刻有效),或稳定键 */
 export type SimRef = number | string;
