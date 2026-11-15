@@ -1,5 +1,10 @@
 /** 工具插件替用的人翻年份、移地图、圈出国家和州(view.control@1):「工具」里开的和开发者模式载入的共用 */
 import type { PluginSource } from '../../../plugin/host';
+import type { PanelTarget } from '../../../plugin/types';
+import { flyFocus, highlightOf } from '../../../plugin/viewControl';
+import type { Civ } from '../../../gen/civ/types';
+import type { World } from '../../../gen/world';
+import { resolveKey } from '../../../gen/edits';
 import { getCivHighlight, getCivTime, setCivHighlight, setCivTime } from '../../civView';
 import { directorFlyTo } from '../../directorStore';
 
@@ -56,4 +61,24 @@ export function toolSteer(live: () => boolean): Required<Pick<PluginSource, 'see
       lit = getCivHighlight()?.stamp ?? 0;
     },
   };
+}
+
+/** 用的人自己点了面板上的链接:年份翻过去,国、城、州飞过去(国、州还圈一下);不看插件有没有 view.control,找不到的不动 */
+export function panelGo(to: PanelTarget, world: World, civ: Civ | null): void {
+  if (!civ) return;
+  if ('year' in to) {
+    setCivTime({ year: Math.min(civ.endYear, Math.max(0, to.year)), playing: false, scrubbing: false, story: false });
+    return;
+  }
+  const r = resolveKey(civ, to.key);
+  if (!r) return;
+  const arg = r.kind === 'polity' ? { polities: [to.key] } : r.kind === 'region' ? { regions: [to.key] } : r.kind === 'settlement' ? { settlements: [to.key] } : null;
+  if (!arg) return;
+  const year = () => getCivTime().year ?? 0;
+  try {
+    directorFlyTo(flyFocus(world, () => civ, arg, year));
+    if (r.kind !== 'settlement') setCivHighlight(highlightOf(civ, arg, year));
+  } catch {
+    // 那一年地图上没有这一处
+  }
 }
