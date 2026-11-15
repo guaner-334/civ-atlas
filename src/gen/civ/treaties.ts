@@ -229,6 +229,8 @@ export class TreatyModel {
   unzone?: (z: Zone, t: Year) => void;
   /** 中立地 z 此刻撤了还给谁(−1 = 成了无主之地);owner = 各州此刻的主人(收命令那一关推着看的) */
   backOf?: (z: Zone, owner: (r: number) => number) => number;
+  /** 演一国时 a 提出立约 / 划中立地,q 肯不肯(第 i 条干预;收命令那一关推着看也调这里) */
+  willing?: (a: number, q: number, t: Year, i: number) => boolean;
 
   constructor(pm: PolityModel, dm: DiplomacyModel) {
     this.pm = pm;
@@ -909,6 +911,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     if (fighting(a, q)) odds *= 0.5;
     return keyed4(base, pm.ptag[a], pm.ptag[q], i, U_ASK) < Math.min(ASK_MAX, odds);
   };
+  m.willing = willing;
   /** 几国两两之间正在打的仗当即议和 */
   const truce = (ps: readonly number[], t: Year) => {
     for (const w of wm.active.filter((x) => ps.includes(x.a) && ps.includes(x.b))) api.war.makePeace!(w, t);

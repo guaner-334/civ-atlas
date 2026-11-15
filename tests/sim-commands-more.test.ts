@@ -7,13 +7,16 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, startCiv, startContinue, type Civ } from '../src/gen/civ';
 import { packValue, unpackValue } from '../src/gen/snapshot';
-import { cultureKey, polityKey, regionKey, type Intervention } from '../src/gen/edits';
+import { cultureKey, foundedPolityKey, polityKey, regionKey, settlementKey, type Intervention } from '../src/gen/edits';
+import { AdjKind } from '../src/gen/civ/types';
 import type { PluginRefused, SimPlugin } from '../src/gen/civ/engine/plugin';
 import type { SimPolity, SimRead } from '../src/gen/civ/simRead';
 import { REFUSE_REASONS } from '../src/gen/civ/simApi';
 import { treatyBook } from '../src/gen/civ/treatyBook';
 import { polityTies, relationsAt } from '../src/gen/civ/diplomacy';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
+import { capitalAt, ownersAt, populationAt } from '../src/gen/readers/openQuery';
+import { historyRelations } from '../src/plugin/read';
 import { civDiff } from '../scripts/lib/resumeFuzz';
 
 const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed: 2024 });
@@ -395,6 +398,294 @@ describe('作者的干预挡下命令(新的几种挡法)', () => {
     const got = run({ [Y]: [{ kind: 'convert', region: sideCities[0], folk: cultureKey(scene.civ, otherFolk) }] });
     expect(outcome(got.civ).e.n).toBe(otherFolk);
   }, 60_000);
+
+  it('同一批先分裂立新国、再拿它的稳定键划走受保护独城国的国都:照不许灭挡', () => {
+    const { y, x: { solo, soloCap, parent, seat } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const cs = base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y));
+      const cityAt = new Map(cs.map((s) => [s.region, s]));
+      const ps = base.polities.filter((p) => lives(p.id, y));
+      const solo = ps.find((p) => [...own.keys()].filter((r) => own[r] === p.id && cityAt.has(r)).length === 1);
+      if (!solo) return undefined;
+      const soloCap = base.settlements[capitalAt(solo, y)].region;
+      const parent = ps.find((p) => {
+        if (p.id === solo.id) return false;
+        const cap = base.settlements[capitalAt(p, y)].region;
+        return [...own.keys()].some((r) => own[r] === p.id && r !== cap && cityAt.has(r));
+      });
+      if (!parent) return undefined;
+      const pCap = base.settlements[capitalAt(parent, y)].region;
+      const sides = [...own.keys()].filter((r) => own[r] === parent.id && r !== pCap && cityAt.has(r));
+      sides.sort((a, b) => populationAt(cityAt.get(b)!, y + 1 / 256) - populationAt(cityAt.get(a)!, y + 1 / 256));
+      return { solo: solo.id, soloCap, parent: parent.id, seat: sides[0] };
+    });
+    const before = generateCiv(w, { endYear: y });
+    const born = foundedPolityKey(before, regionKey(before, seat), y + 1 / 256)!;
+    const got = run(
+      { [y]: [{ kind: 'secede', a: parent, regions: [seat] }, { kind: 'cede', a: born, region: soloCap }] },
+      [{ kind: 'protect', a: polityKey(before, solo), from: y, fromTick: 1 }],
+    );
+    expect(told(got.log)).toEqual([{ year: y + 10, refused: [{ kind: 'cede', index: 1, why: 'protect' }] }]);
+    expect(got.took.map((v) => v.kind)).toEqual(['secede']);
+    expect(got.civ.polities[solo].ended).not.toBe(y + 1 / 256);
+  }, 60_000);
+
+  it('同一批先划走一条通路再分裂另一条:按投影归属算断开的州,照不许灭挡', () => {
+    const reg = base.regions;
+    const reach = (own: ArrayLike<number>, p: number, cap: number, skip: ReadonlySet<number>) => {
+      const seen = new Set<number>([cap]);
+      const q = [cap];
+      for (let h = 0; h < q.length; h++) {
+        const r = q[h];
+        for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
+          if (reg.adjKind[k] === AdjKind.SeaRoute) continue;
+          const j = reg.adj[k];
+          if (!seen.has(j) && !skip.has(j) && own[j] === p) {
+            seen.add(j);
+            q.push(j);
+          }
+        }
+      }
+      return seen;
+    };
+    const { y, x: { p, other, cap, mid1, rs } } = first((y) => {
+      if (y < 350) return undefined;
+      const own = ownersAt(base, y).polity;
+      const cities = new Set(base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y)).map((s) => s.region));
+      const ps = base.polities.filter((x) => x.founded < y - 35 && lives(x.id, y));
+      const settled = (r: number, id: number) => {
+        for (let t = y - 35; t <= y; t += 5) if (ownersAt(base, t).polity[r] !== id) return false;
+        return true;
+      };
+      for (const pol of ps) {
+        const other = ps.find((x) => x.id !== pol.id);
+        if (!other) continue;
+        const cap = base.settlements[capitalAt(pol, y)].region;
+        const full = reach(own, pol.id, cap, new Set());
+        const nonCap = [...full].filter((r) => r !== cap);
+        for (const far of nonCap) {
+          if (!cities.has(far)) continue;
+          for (const mid1 of nonCap) {
+            if (mid1 === far) continue;
+            for (const mid2 of nonCap) {
+              if (mid2 === far || mid2 === mid1) continue;
+              const rs = [mid2, ...nonCap.filter((r) => r !== far && r !== mid1 && r !== mid2 && cities.has(r))];
+              const rsSet = new Set(rs);
+              if (!reach(own, pol.id, cap, rsSet).has(far)) continue;
+              const rest = reach(own, pol.id, cap, new Set([mid1, ...rs]));
+              if (rest.has(far)) continue;
+              const disc = [...full].filter((r) => r !== mid1 && !rsSet.has(r) && !rest.has(r));
+              if (disc.some((r) => !settled(r, pol.id))) continue;
+              return { p: pol.id, other: other.id, cap, mid1, rs };
+            }
+          }
+        }
+      }
+      return undefined;
+    });
+    const got = run(
+      { [y]: [{ kind: 'cede', a: other, region: mid1 }, { kind: 'secede', a: p, regions: rs }, { kind: 'found', region: cap }] },
+      [{ kind: 'protect', a: polityKey(base, p), from: y, fromTick: 1 }],
+    );
+    expect(told(got.log)).toEqual([{ year: y + 10, refused: [{ kind: 'found', index: 2, why: 'protect' }] }]);
+    expect(got.took.map((v) => v.kind)).toEqual(['cede', 'secede']);
+    expect(got.civ.polities[p].ended).not.toBe(y + 1 / 256);
+  }, 60_000);
+
+  it('同一批先把两城国的另一座城划中立地、再在国都立国:照不许灭挡', () => {
+    const { y, x: { two, other, cap, side } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const liege = relationsAt(base, y).liege;
+      const cities = new Set(base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y)).map((s) => s.region));
+      const ps = base.polities.filter((p) => lives(p.id, y) && !liege.has(p.id));
+      for (const p of ps) {
+        const cs = [...own.keys()].filter((r) => own[r] === p.id && cities.has(r));
+        if (cs.length !== 2) continue;
+        const cap = base.settlements[capitalAt(p, y)].region;
+        const side = cs.find((r) => r !== cap);
+        const other = ps.find((q) => q.id !== p.id);
+        if (side !== undefined && other) return { two: p.id, other: other.id, cap, side };
+      }
+      return undefined;
+    });
+    const got = run(
+      { [y]: [{ kind: 'neutral', a: two, region: side, ps: [other] }, { kind: 'found', region: cap }] },
+      [{ kind: 'protect', a: polityKey(base, two), from: y, fromTick: 1 }],
+    );
+    expect(told(got.log)).toEqual([{ year: y + 10, refused: [{ kind: 'found', index: 1, why: 'protect' }] }]);
+    expect(got.took.map((v) => v.kind)).toEqual(['neutral']);
+    expect(got.civ.polities[two].ended).not.toBe(y + 1 / 256);
+  }, 60_000);
+
+  it('同一批先请别国共建中立地遭拒、再在国都立国:对方不肯不挪归属,不误挡', () => {
+    const { y, x: { two, vassalOther, cap, side } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const liege = relationsAt(base, y).liege;
+      const cities = new Set(base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y)).map((s) => s.region));
+      const ps = base.polities.filter((p) => lives(p.id, y));
+      for (const p of ps) {
+        if (liege.has(p.id)) continue;
+        const cs = [...own.keys()].filter((r) => own[r] === p.id && cities.has(r));
+        if (cs.length !== 2) continue;
+        const cap = base.settlements[capitalAt(p, y)].region;
+        const side = cs.find((r) => r !== cap);
+        const vassalOther = ps.find((q) => q.id !== p.id && liege.has(q.id) && liege.get(q.id)!.liege !== p.id);
+        if (side !== undefined && vassalOther) return { two: p.id, vassalOther: vassalOther.id, cap, side };
+      }
+      return undefined;
+    });
+    const guard: Intervention[] = [{ kind: 'protect', a: polityKey(base, two), from: y, fromTick: 1 }];
+    const got = run({ [y]: [{ kind: 'neutral', a: two, region: side, ps: [vassalOther], ask: true }, { kind: 'found', region: cap }] }, guard);
+    expect(told(got.log)).toEqual([]);
+    expect(got.took.map((v) => v.kind)).toEqual(['neutral', 'found']);
+    expect(got.civ.polities[two].ended).not.toBe(y + 1 / 256);
+    const viaTreaty = run({ [y]: [{ kind: 'treaty', a: two, ps: [vassalOther], zone: side, ask: true }, { kind: 'found', region: cap }] }, guard);
+    expect(told(viaTreaty.log)).toEqual([]);
+    expect(viaTreaty.took.map((v) => v.kind)).toEqual(['treaty', 'found']);
+    expect(viaTreaty.civ.polities[two].ended).not.toBe(y + 1 / 256);
+  }, 120_000);
+
+  it('同一批先划中立地再废约、再在国都立国:撤回原主的不误挡,一直留着的照不许灭挡', () => {
+    const reg = base.regions;
+    const isLand = (k: number) => k === AdjKind.Flat || k === AdjKind.River || k === AdjKind.Mountain;
+    const { y, x: { two, other, cap, side } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const liege = relationsAt(base, y).liege;
+      const cities = new Set(base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y)).map((s) => s.region));
+      const ps = base.polities.filter((p) => lives(p.id, y) && !liege.has(p.id));
+      for (const p of ps) {
+        const cs = [...own.keys()].filter((r) => own[r] === p.id && cities.has(r));
+        if (cs.length !== 2) continue;
+        const cap = base.settlements[capitalAt(p, y)].region;
+        const side = cs.find((r) => r !== cap);
+        if (side === undefined) continue;
+        let touchesRest = false;
+        for (let e = reg.adjStart[side]; e < reg.adjStart[side + 1]; e++) {
+          if (isLand(reg.adjKind[e]) && reg.adj[e] !== side && own[reg.adj[e]] === p.id) touchesRest = true;
+        }
+        const other = ps.find((q) => q.id !== p.id);
+        if (touchesRest && other) return { two: p.id, other: other.id, cap, side };
+      }
+      return undefined;
+    });
+    const guard: Intervention[] = [{ kind: 'protect', a: polityKey(base, two), from: y, fromTick: 1 }];
+    const restored = run(
+      { [y]: [{ kind: 'neutral', a: two, region: side, ps: [other] }, { kind: 'annul', a: two, b: other }, { kind: 'found', region: cap }] },
+      guard,
+    );
+    expect(told(restored.log)).toEqual([]);
+    expect(restored.took.map((v) => v.kind)).toEqual(['neutral', 'annul', 'found']);
+    expect(restored.civ.polities[two].ended).not.toBe(y + 1 / 256);
+    const lasting = run(
+      { [y]: [{ kind: 'neutral', a: two, region: side, ps: [other], lasting: true }, { kind: 'annul', a: two, b: other }, { kind: 'found', region: cap }] },
+      guard,
+    );
+    expect(told(lasting.log)).toEqual([{ year: y + 10, refused: [{ kind: 'found', index: 2, why: 'protect' }] }]);
+    expect(lasting.took.map((v) => v.kind)).toEqual(['neutral', 'annul']);
+  }, 120_000);
+
+  it('同一批先迁都到另一座城再划它做中立地、再在旧国都立国:新国都划不成,不误挡', () => {
+    const { y, x: { two, other, oldCap, newCap, newCity } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const liege = relationsAt(base, y).liege;
+      const liveCities = base.settlements.filter((s) => s.founded < y && (s.ended === undefined || s.ended > y));
+      const cityAt = new Map(liveCities.map((s) => [s.region, s.id]));
+      const ps = base.polities.filter((p) => lives(p.id, y) && !liege.has(p.id));
+      for (const p of ps) {
+        const cs = [...own.keys()].filter((r) => own[r] === p.id && cityAt.has(r));
+        if (cs.length !== 2) continue;
+        const oldCap = base.settlements[capitalAt(p, y)].region;
+        const newCap = cs.find((r) => r !== oldCap);
+        const other = ps.find((q) => q.id !== p.id);
+        if (newCap !== undefined && other) return { two: p.id, other: other.id, oldCap, newCap, newCity: settlementKey(base, cityAt.get(newCap)!) };
+      }
+      return undefined;
+    });
+    const guard: Intervention[] = [{ kind: 'protect', a: polityKey(base, two), from: y, fromTick: 1 }];
+    const got = run(
+      { [y]: [{ kind: 'move', a: two, city: newCity }, { kind: 'neutral', a: two, region: newCap, ps: [other] }, { kind: 'found', region: oldCap }] },
+      guard,
+    );
+    expect(told(got.log)).toEqual([]);
+    expect(got.took.map((v) => v.kind)).toEqual(['move', 'neutral', 'found']);
+    expect(got.civ.polities[two].ended).not.toBe(y + 1 / 256);
+    const viaTreaty = run(
+      { [y]: [{ kind: 'move', a: two, city: newCity }, { kind: 'treaty', a: two, ps: [other], zone: newCap }, { kind: 'found', region: oldCap }] },
+      guard,
+    );
+    expect(told(viaTreaty.log)).toEqual([]);
+    expect(viaTreaty.took.map((v) => v.kind)).toEqual(['move', 'treaty', 'found']);
+    expect(viaTreaty.civ.polities[two].ended).not.toBe(y + 1 / 256);
+  }, 120_000);
+
+  it('同一批先划中立地再宣战背约、再在国都立国:撤回原主的不误挡,一直留着的照不许灭挡', () => {
+    const reg = base.regions;
+    const isLand = (k: number) => k === AdjKind.Flat || k === AdjKind.River || k === AdjKind.Mountain;
+    const { y, x: { two, other, cap, side } } = first((y) => {
+      const own = ownersAt(base, y).polity;
+      const liege = relationsAt(base, y).liege;
+      const cities = new Set(base.settlements.filter((s) => s.founded <= y && (s.ended === undefined || s.ended > y)).map((s) => s.region));
+      const ps = base.polities.filter((p) => lives(p.id, y) && !liege.has(p.id));
+      const inWar = (a: number, b: number) =>
+        base.annals.some(
+          (e) =>
+            e.kind === 'war' &&
+            e.year <= y &&
+            ((e.a === a && e.b === b) || (e.a === b && e.b === a)) &&
+            !base.annals.some((x) => x.kind === 'peace' && x.war === e.war && x.year <= y),
+        );
+      for (const p of ps) {
+        const lands = [...own.keys()].filter((r) => own[r] === p.id);
+        const cs = lands.filter((r) => cities.has(r));
+        if (cs.length !== 2) continue;
+        const cap = base.settlements[capitalAt(p, y)].region;
+        const side = cs.find((r) => r !== cap);
+        if (side === undefined) continue;
+        const rest = lands.filter((r) => r !== side);
+        const touchesRest = rest.some((r) => {
+          for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) if (isLand(reg.adjKind[e]) && reg.adj[e] === side) return true;
+          return false;
+        });
+        if (!touchesRest) continue;
+        for (const q of ps) {
+          if (q.id === p.id || inWar(p.id, q.id)) continue;
+          const bordersElsewhere = rest.some((r) => {
+            for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) if (isLand(reg.adjKind[e]) && own[reg.adj[e]] === q.id) return true;
+            return false;
+          });
+          if (bordersElsewhere) return { two: p.id, other: q.id, cap, side };
+        }
+      }
+      return undefined;
+    });
+    const guard: Intervention[] = [{ kind: 'protect', a: polityKey(base, two), from: y, fromTick: 1 }];
+    const restored = run(
+      { [y]: [{ kind: 'neutral', a: two, region: side, ps: [other] }, { kind: 'declare', a: two, b: other }, { kind: 'found', region: cap }] },
+      guard,
+    );
+    expect(told(restored.log)).toEqual([]);
+    expect(restored.took.map((v) => v.kind)).toEqual(['neutral', 'declare', 'found']);
+    expect(restored.civ.polities[two].ended).not.toBe(y + 1 / 256);
+    const lasting = run(
+      { [y]: [{ kind: 'neutral', a: two, region: side, ps: [other], lasting: true }, { kind: 'declare', a: two, b: other }, { kind: 'found', region: cap }] },
+      guard,
+    );
+    expect(told(lasting.log)).toEqual([{ year: y + 10, refused: [{ kind: 'found', index: 2, why: 'protect' }] }]);
+    expect(lasting.took.map((v) => v.kind)).toEqual(['neutral', 'declare']);
+  }, 120_000);
+
+  it('插件结的盟经断盟或办成了的称臣解除以后,读历史的接口不再报', () => {
+    const hasPair = (civ: Civ, year: number, a: number, b: number) =>
+      historyRelations(civ, { year }).alliances.some((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a));
+    const [p, q, r] = free;
+    const unallied = run({ [Y]: [{ kind: 'ally', a: p.id, b: q.id }], [Y + 10]: [{ kind: 'unally', a: p.id, b: q.id }] }).civ;
+    expect(hasPair(unallied, Y + 5, p.id, q.id)).toBe(true);
+    expect(hasPair(unallied, Y + 15, p.id, q.id)).toBe(false);
+    const submitted = run({ [Y]: [{ kind: 'ally', a: p.id, b: r.id }], [Y + 10]: [{ kind: 'submit', a: p.id, b: q.id }] }).civ;
+    expect(outcome(submitted, 1).e.n).toBe(1);
+    expect(hasPair(submitted, Y + 5, p.id, r.id)).toBe(true);
+    expect(hasPair(submitted, Y + 15, p.id, r.id)).toBe(false);
+  }, 120_000);
 });
 
 /** 每十年挑一国和它一个邻国,新的十几种轮着下一条(实体给读口里的编号) */

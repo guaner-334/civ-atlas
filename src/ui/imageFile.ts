@@ -2,7 +2,7 @@
  * 照手绘图生成时读图:是不是图片、读一张图并缩小好准备认(新建世界的弹窗选图、编辑时「换一张」都走这里)。
  * 认图、地图上的预览在 ImportImage.tsx(那边照旧一起导出这几样);单独一个文件,首页上的新建弹窗不用带上认图的界面。
  */
-import { preparePicture, type Picture } from '../gen/sketchImage';
+import type { Picture } from '../gen/sketchImage';
 import { showToast } from './toastStore';
 
 /** 原图宽或高超过这么多就不认了(太大的图解码很占内存) */
@@ -51,6 +51,7 @@ export async function loadImage(file: File): Promise<LoadedImage | null> {
   try {
     if (!ctx) throw new Error('no canvas');
     ctx.drawImage(img, 0, 0, cw, ch);
+    const { preparePicture } = await import('../gen/sketchImage');
     return { name: file.name, url, w, h, pic: preparePicture(ctx.getImageData(0, 0, cw, ch)) };
   } catch {
     return fail('没能读出这张图', `${file.name} 不是能打开的图片`);
