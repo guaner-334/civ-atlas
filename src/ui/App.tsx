@@ -195,7 +195,7 @@ import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
 import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { closeBookReader, closeHistoryBook, stopBook, useBookReader } from './bookStore';
-import { navLayer, navReplace, navSettled, type NavHooks } from './nav';
+import { navLayer, navReplace, navSettled, navWorkOf, type NavHooks } from './nav';
 import { layerNow } from './navView';
 import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
@@ -639,7 +639,11 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const [landing, setLanding] = useState<Landing>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
   /** 作品墙那一页 / 正在打开的作品 / 地图作品(见 WallView;不在作品墙 = null) */
   const [wall, setWall] = useState<WallView | null>(() =>
-    route.stage !== 'home' || init.gallery === null || landing ? null : init.gallery ? { kind: 'work', id: init.gallery, state: 'loading' } : { kind: 'list' },
+    route.stage !== 'home' || init.gallery === null || landing
+      ? null
+      : init.gallery
+        ? { kind: 'work', id: init.gallery, state: 'loading', enter: navWorkOf(history.state) }
+        : { kind: 'list' },
   );
   /** 换了画面就作废还在取的作品(取回来时对一下) */
   const wallSeq = useRef(0);
@@ -1211,7 +1215,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     send,
     later: {
       showHome: () => showHome(),
-      openWork: (id) => openWork(id),
+      openWork: (id, enter) => openWork(id, enter),
       holdMoment: (id, moment) => {
         pendingMoment.current = { id, moment };
         // 打开的就是正在看的这张图(地址栏里又贴了一个分享链接):画面不会再变一次,也要停过去
@@ -1272,6 +1276,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const {
     showGallery,
     openWork,
+    openWorkFromDialog,
+    lookPlanet,
     keepWork,
     takePresetWork,
     startDraft,
@@ -2851,7 +2857,11 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             onHome={goHome}
             onOpen={(w) => openWork(w.id)}
             onPreset={takePresetWork}
+            onWorld={openWorkFromDialog}
+            onPlanet={lookPlanet}
+            onMapCiv={newCivOnWork}
             shown={wall.shown}
+            opening={wall.opening}
             onShown={(id) => {
               // 开着的新建参数 / 规则作品写进网址(刷新、复制网址还是它);不算一步
               navReplace({ page: 'gallery', ...(id ? { id } : {}) });
@@ -2861,7 +2871,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         ) : wall?.kind === 'map' ? (
           <MapWorkView phone={narrow} work={wall.work} onBack={showGallery} onNewCiv={() => newCivOnWork(wall.work)} />
         ) : wall?.kind === 'work' ? (
-          <WorkGone phone={narrow} state={wall.state} onHome={goHome} onGallery={showGallery} onRetry={() => openWork(wall.id)} />
+          <WorkGone phone={narrow} state={wall.state} onHome={goHome} onGallery={showGallery} onRetry={() => openWork(wall.id, wall.enter)} />
         ) : (
           <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} onNewCiv={startNewCiv} onEditMap={editMap} onGallery={showGallery} onOpenWork={(w) => openWork(w.id)} />
         )

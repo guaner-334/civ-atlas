@@ -1,0 +1,82 @@
+/* 作品墙上世界、地图作品的介绍窗(GalleryWorkDialogs.tsx;点了才下载)。别的照新建参数窗(gallery.css 的 .gl-pdlg、.gl-pp) */
+
+/* 封面整张 2:1,不裁;浅色地图上的关闭按钮衬深色 */
+.acct-dlg.gl-pdlg.gl-wdlg .gl-pcover {
+  height: auto;
+  aspect-ratio: 2 / 1;
+  background-size: 100% 100%;
+  background-position: center;
+}
+.gl-wdlg .gl-pcover .acct-x {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* 两列格子:左格右边一道线,落单的、手机上半格放不下的占满一行,最后一行不要底线 */
+.acct-dlg.gl-wdlg .gl-pp.gl-wpp > .acct-gr {
+  border-right: 0;
+  border-bottom: 0.5px solid var(--line);
+}
+.acct-dlg.gl-wdlg .gl-pp.gl-wpp > .acct-gr.left {
+  border-right: 0.5px solid var(--line);
+}
+.acct-dlg.gl-wdlg .gl-pp.gl-wpp > .acct-gr.wide {
+  grid-column: 1 / -1;
+}
+.acct-dlg.gl-wdlg .gl-pp.gl-wpp > .acct-gr.end {
+  border-bottom: 0;
+}
+.acct-dlg.gl-wdlg .gl-pp.gl-wpp > .acct-gr.gl-prl {
+  grid-column: 1 / -1;
+  border-top: 0.5px solid var(--line);
+  border-bottom: 0;
+}
+/* 规则不能点(下载之前手上只有摘要):不写成链接的蓝字 */
+.gl-wpp div.gl-prl .v {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+/* 下载中:主按钮变成进度(底边一条进度),旁边「取消」 */
+.acct-btn.gl-dl {
+  position: relative;
+  overflow: hidden;
+  min-width: 220px;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.acct-btn.gl-dl:disabled {
+  opacity: 1;
+  color: var(--ink) !important;
+}
+.gl-dl .spin {
+  width: 14px;
+  height: 14px;
+}
+.gl-dl i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+  transition: width 0.2s linear;
+}
+.acct-dlg.sheet .acct-btn.gl-dl {
+  min-width: 0;
+  flex: 1;
+  padding: 0 10px;
+}
+.acct-dlg.sheet .gl-dl .spin {
+  display: none;
+}
+
+/* 手机:太长时窗里自己滚,底下的按钮不动 */
+.acct-dlg.sheet.gl-wdlg {
+  padding-bottom: 0;
+}
+.acct-dlg.sheet.gl-wdlg .acct-foot {
+  position: sticky;
+  bottom: 0;
+  padding-bottom: calc(28px + var(--safe-b, 0px));
+  background: var(--panel-solid);
+}

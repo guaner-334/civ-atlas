@@ -8,6 +8,7 @@
  *                     ——网站上投、群里投,不然只有群里投;带上哪三样、投稿须知)
  *   GalleryFeatured   「我的世界」一个都没有时,空页面下面的一排本月精选 +「去作品墙看全部」
  *   PresetWorkDialog  点开一个新建参数作品:封面星球、这套参数、作者的一句话;「用这套参数新建」
+ *                     点开一个世界、地图作品是它们的介绍窗(GalleryWorkDialogs.tsx,点了才下载);
  *                     点开一个规则作品是调规则的大卡(rules/RulesSheet.tsx,盖在这一页上)
  *   WorkGone          打开作品的地址时:取的时候一页空白,撤下了(或没有)整页写"这个作品已经撤下了"
  *   ReportDialog      举报(窗在 ReportBox.tsx,点了才下载)。同一台设备对同一个作品只能举报一次(分享短链接的举报同一个窗,ShareReportDialog)
@@ -47,11 +48,21 @@ import {
 } from '../account/gallery';
 import type { WorkGoneState } from './world/worldTarget';
 import { useFullOverview } from './fullWorldView';
+import type { SharedWorld } from './fullWorldPull';
 import { useServerSubmit } from './submitView';
 import { TERMS } from './submitTerms';
 import './gallery.css';
 
 const ReportBox = lazy(() => import('./ReportBox'));
+
+type WorkDialogsModule = typeof import('./GalleryWorkDialogs');
+const loadWorkDialogs = () => import('./GalleryWorkDialogs');
+const WorkDialog = lazy(() =>
+  loadWorkDialogs().then(
+    (m) => ({ default: m.WorkDialog }),
+    () => ({ default: (() => null) as unknown as WorkDialogsModule['WorkDialog'] }),
+  ),
+);
 
 type GalleryPluginsModule = typeof import('./plugins/GalleryPlugins');
 const loadPlugins = () => import('./plugins/GalleryPlugins');
@@ -211,17 +222,27 @@ export interface GalleryPageProps {
   phone: boolean;
   /** 「‹ 我的世界」 */
   onHome: () => void;
-  /** 点开一个世界 / 地图作品(新建参数、规则在这一页上打开) */
+  /** 点开一个世界 / 地图作品,没给 onWorld 时(先出来的首页:交给主程序去开窗;新建参数、规则在这一页上打开) */
   onOpen: (w: GalleryWork) => void;
   /** 新建参数作品里点了「用这套参数新建」 */
   onPreset: (p: SharedPreset) => void;
-  /** 一进来就开着的新建参数 / 规则作品(打开它的地址时;取好了的) */
+  /** 世界作品的窗里「打开这个世界」,世界文件取完了(只存了存档的旧作品没有 file)。给了它,世界、地图作品在这一页上开窗 */
+  onWorld?: (it: GalleryItem, file?: SharedWorld) => void;
+  /** 地图作品的窗里「看看这颗星球」 */
+  onPlanet?: (it: GalleryItem) => void;
+  /** 地图作品的窗里「用这张地图打造文明」 */
+  onMapCiv?: (it: GalleryItem) => void;
+  /** 一进来就开着窗的作品(打开它的地址时;取好了的) */
   shown?: GalleryItem | null;
-  /** 开着的新建参数 / 规则作品换了(编号;关上 = null):网址跟着换 */
+  /** 一进来就开着窗的世界 / 地图作品(列表里那一项,窗里再取) */
+  opening?: GalleryWork;
+  /** 开着窗的作品换了(编号;关上 = null):网址跟着换 */
   onShown?: (id: string | null) => void;
 }
 
-export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }: GalleryPageProps) {
+const workKind = (w: GalleryWork | null | undefined) => w?.kind === 'world' || w?.kind === 'map';
+
+export function GalleryPage({ phone, onHome, onOpen, onPreset, onWorld, onPlanet, onMapCiv, shown, opening, onShown }: GalleryPageProps) {
   const g = useGallery();
   const [tab, setTabState] = useState<Tab>(lastTab);
   const setTab = (t: Tab) => {
@@ -239,6 +260,15 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
   useEffect(() => {
     if (plugin) setPluginW({ w: plugin, item: plugin });
   }, [plugin]);
+  const [workW, setWorkW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(() =>
+    shown && workKind(shown) ? { w: shown, item: shown } : opening && workKind(opening) ? { w: opening } : null,
+  );
+  useEffect(() => {
+    if (shown && workKind(shown)) setWorkW({ w: shown, item: shown });
+  }, [shown]);
+  useEffect(() => {
+    if (opening && workKind(opening)) setWorkW({ w: opening });
+  }, [opening]);
   useEffect(() => {
     if (shown?.kind === 'rules') openRulesWork(shown, shown.ruleLink ?? '');
   }, [shown]);
@@ -250,7 +280,7 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
     [],
   );
   const sheet = useRulesSheet();
-  const shownId = presetW?.w.id ?? pluginW?.w.id ?? rulesWorkId(sheet);
+  const shownId = presetW?.w.id ?? pluginW?.w.id ?? workW?.w.id ?? rulesWorkId(sheet);
   const shownRef = useRef(onShown);
   shownRef.current = onShown;
   const firstShown = useRef(true);
@@ -267,7 +297,8 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
     if (g.status === 'off') onHome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g.status]);
-  const open = (w: GalleryWork) => (w.kind === 'preset' ? setPresetW({ w }) : w.kind === 'plugin' ? setPluginW({ w }) : w.kind === 'rules' ? openRulesWork(w) : onOpen(w));
+  const open = (w: GalleryWork) =>
+    w.kind === 'preset' ? setPresetW({ w }) : w.kind === 'plugin' ? setPluginW({ w }) : w.kind === 'rules' ? openRulesWork(w) : onWorld ? setWorkW({ w }) : onOpen(w);
   const list = g.list;
 
   const homeBtn = (
@@ -376,6 +407,20 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
             onPreset(p);
           }}
         />
+      )}
+      {workW && onWorld && (
+        <Suspense fallback={null}>
+          <WorkDialog
+            key={workW.w.id}
+            phone={phone}
+            w={workW.w}
+            item={workW.item}
+            onClose={() => setWorkW(null)}
+            onWorld={onWorld}
+            onPlanet={(it) => onPlanet?.(it)}
+            onMapCiv={(it) => onMapCiv?.(it)}
+          />
+        </Suspense>
       )}
       {pluginW && pluginsUiOn() && (
         <Suspense fallback={null}>

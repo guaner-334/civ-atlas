@@ -105,7 +105,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     navPushEarly({ page: 'gallery' }, galleryHref(location.pathname, location.search, ''));
     leave({ kind: 'gallery' });
   }, [leave]);
-  /** 在作品墙那一页上点开一个世界、地图作品:网址先换成它、记一步(和 App 里一样),交给 App 去取 */
+  /** 点开一个世界、地图作品(空页面的精选、出处):网址先换成它、记一步(和 App 里一样),交给 App 去开它的窗 */
   const openWork = useCallback(
     (id: string) => {
       navPushEarly({ page: 'gallery', id }, galleryHref(location.pathname, location.search, id));
@@ -113,6 +113,12 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     },
     [leave],
   );
+  /** 在作品墙那一页上点开一个世界、地图作品:和开着别的作品的窗一样,这一步换成它(不多记一步),交给 App 去开它的窗 */
+  const openWorkHere = (id: string) => {
+    navReplace({ page: 'gallery', id });
+    navUrl(galleryHref(location.pathname, location.search, id));
+    leave({ kind: 'work', id });
+  };
   /** 地址栏里贴了作品墙的地址(浏览器记的那一步 = 作品墙):网址换成 ?gallery 的写法,放出作品墙那一页 / 交给 App 去取那个作品 */
   const pastedWall = (id: string) => {
     if (!isNavState(history.state)) navAdopt({ page: 'gallery', ...(id ? { id } : {}) });
@@ -270,7 +276,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
         <GalleryPage
           phone={narrow}
           onHome={() => history.back()}
-          onOpen={(w) => openWork(w.id)}
+          onOpen={(w) => openWorkHere(w.id)}
           onPreset={(preset) => leave({ kind: 'preset', preset })}
           onShown={(id) => {
             // 开着的新建参数 / 规则作品写进网址(和 App 里一样;不算一步):主程序下好以后照网址接着开着它

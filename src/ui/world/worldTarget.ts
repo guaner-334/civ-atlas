@@ -15,9 +15,9 @@ import { newWorldRules, worldTuning, type RuleSet } from '../../gen/civ/ruleSet'
 import type { WorldTuning } from '../../gen/civ/tuning';
 import type { NameMix } from '../../gen/names/mix';
 import { GEN_KEY, worldKey, type ResolvedMoment, type SaveFile, type SaveMoment, type SaveOrigin, type SaveView } from '../../gen/savefile';
-import { galleryHref, type GalleryItem } from '../../account/gallery';
+import { galleryHref, type GalleryItem, type GalleryWork } from '../../account/gallery';
 import { AREA_KEYS } from '../areaLink';
-import { navUrl, type NavState } from '../nav';
+import { navUrl, type NavState, type NavWork } from '../nav';
 import type { NewWorldInit, NewWorldMode } from '../NewWorldDialog';
 import { OWN_KEY } from '../oldSite';
 import type { SharedPreset } from '../presetStore';
@@ -98,13 +98,16 @@ export interface Target {
 
 /**
  * 作品墙盖在我的世界的位置上(和分享停了那一页一样):
- *   list  作品墙那一页(shown = 开着的新建参数 / 规则作品,打开它的网址时)
- *   work  打开一个作品的网址:正在取 / 撤下了 / 取不到
+ *   list  作品墙那一页(shown = 开着窗的作品,打开它的网址时取好了的;opening = 开着窗的世界 / 地图作品,列表里那一项,窗里再取)
+ *   work  打开一个作品的网址:正在取 / 撤下了 / 取不到(enter = 刷新回到世界 / 星球时:取到了直接进,不开窗)
  *   map   地图作品:整屏一颗星球
  * 世界作品打开就是平常的世界(只是看看,左上一条写作品;见 App 的 workFor)
  */
 /** state 里 plugin = 撤下了的是插件:网站停用的原因(作者自己撤下的是空的) */
-export type WallView = { kind: 'list'; shown?: GalleryItem } | { kind: 'work'; id: string; state: WorkGoneState } | { kind: 'map'; work: GalleryItem };
+export type WallView =
+  | { kind: 'list'; shown?: GalleryItem; opening?: GalleryWork }
+  | { kind: 'work'; id: string; state: WorkGoneState; enter?: NavWork }
+  | { kind: 'map'; work: GalleryItem };
 export type WorkGoneState = 'loading' | 'gone' | { plugin: string } | { error: string };
 
 /** 打开网页时去哪(App 的 firstRoute 算一次):我的世界 / 新建 / 某个世界;gone = 要回的世界已经删掉了(世界名);dialog = 开着新建弹窗 */
