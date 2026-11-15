@@ -13,33 +13,20 @@
  *   WorkGone          打开作品的地址时:取的时候一页空白,撤下了(或没有)整页写"这个作品已经撤下了"
  *   ReportDialog      举报(窗在 ReportBox.tsx,点了才下载)。同一台设备对同一个作品只能举报一次(分享短链接的举报同一个窗,ShareReportDialog)
  *
- * 打开世界 / 地图作品以后的顶条、地图作品的星球在 GalleryWork.tsx(首页不用下载星球那一套)。
+ * 打开世界 / 地图作品以后的顶条、地图作品的星球在 GalleryWork.tsx(首页不用下载星球那一套);
+ * 作品墙整页在 GalleryPage.tsx,怎么上作品墙与新建参数弹窗在 GalleryDialogs.tsx(都点开才下载)。
  * 样式在 gallery.css;卡片、页签、弹窗、单选照「我的世界」(worlds.css)和账号窗口(account.css)的。
  */
-import { Suspense, lazy, useDeferredValue, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Icon, type IconName } from './icons';
-import { Dialog } from './AccountDialogs';
-import { useContact } from './contact';
-import { ContactLink } from './ContactLink';
-import { BeianLinks } from './BeianLinks';
-import { BEIAN } from './beian';
-import { VersionText } from './VersionNews';
-import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
-import { decodePresetHash } from './presetLink';
+import { Suspense, lazy, type ReactNode } from 'react';
+import { Icon } from './icons';
 import type { SharedPreset } from './presetStore';
-import { closeRulesSheet, getRulesSheet, openRulesSheet, openRulesWork, rulesWorkId, useRulesSheet } from './rules/sheetStore';
 import { rulesUiOn } from './rules/flag';
-import { pluginsUiOn } from './plugins/flag';
 import { DEFAULT_PARAMS } from '../gen/params';
 import {
   WORK_KIND_NAME,
   coverUrl,
-  fetchWork,
-  isWorkGone,
-  loadGallery,
   reportWork,
   useGallery,
-  wasReported,
   type GalleryItem,
   type GalleryList,
   type GalleryWork,
@@ -47,47 +34,34 @@ import {
   type WorkKind,
 } from '../account/gallery';
 import type { WorkGoneState } from './world/worldTarget';
-import { useFullOverview } from './fullWorldView';
 import type { SharedWorld } from './fullWorldPull';
-import { useServerSubmit } from './submitView';
-import { TERMS } from './submitTerms';
 import './gallery.css';
 
 const ReportBox = lazy(() => import('./ReportBox'));
 
-type WorkDialogsModule = typeof import('./GalleryWorkDialogs');
-const loadWorkDialogs = () => import('./GalleryWorkDialogs');
-const WorkDialog = lazy(() =>
-  loadWorkDialogs().then(
-    (m) => ({ default: m.WorkDialog }),
-    () => ({ default: (() => null) as unknown as WorkDialogsModule['WorkDialog'] }),
+type GalleryPageModule = typeof import('./GalleryPage');
+const loadGalleryPage = () => import('./GalleryPage');
+const GalleryWall = lazy(() =>
+  loadGalleryPage().then(
+    (m) => ({ default: m.GalleryWall }),
+    () => ({ default: (() => null) as unknown as GalleryPageModule['GalleryWall'] }),
+  ),
+);
+const WorkGoneView = lazy(() =>
+  loadGalleryPage().then(
+    (m) => ({ default: m.WorkGoneView }),
+    () => ({ default: (() => null) as unknown as GalleryPageModule['WorkGoneView'] }),
   ),
 );
 
 type GalleryPluginsModule = typeof import('./plugins/GalleryPlugins');
-const loadPlugins = () => import('./plugins/GalleryPlugins');
+export const loadPlugins = () => import('./plugins/GalleryPlugins');
 export const PluginCards = lazy(() =>
   loadPlugins().then(
     (m) => ({ default: m.PluginCards }),
     () => ({ default: (() => <p className="gl-none">没能打开插件，重新加载网页试试</p>) as GalleryPluginsModule['PluginCards'] }),
   ),
 );
-const PluginWorkDialog = lazy(() =>
-  loadPlugins().then(
-    (m) => ({ default: m.PluginWorkDialog }),
-    () => ({ default: (() => null) as unknown as GalleryPluginsModule['PluginWorkDialog'] }),
-  ),
-);
-// 搜的时候列表那一块:框里有字才下载,不占首页
-const loadFound = () => import('./GalleryFound');
-const GalleryFound = lazy(() =>
-  loadFound().then(
-    (m) => ({ default: m.GalleryFound }),
-    () => ({ default: (() => null) as unknown as (typeof import('./GalleryFound'))['GalleryFound'] }),
-  ),
-);
-
-const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
 /** 上架日期:"10 月 20 日"(不是今年的带上年份) */
 export function dayText(iso: string): string {
@@ -101,12 +75,6 @@ export function dayText(iso: string): string {
 export function dueText(s: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   return m ? `${Number(m[2])} 月 ${Number(m[3])} 日截止` : '';
-}
-
-/** 精选是哪个月的:"10 月" */
-function monthText(s: string): string {
-  const m = /^\d{4}-(\d{2})$/.exec(s);
-  return m ? `${Number(m[1])} 月` : '';
 }
 
 /** 出处的说法:砚山的「金阳洋两岸」(没署名就只写作品名) */
@@ -169,70 +137,14 @@ export function WorkCard({ w, kind, note, phone, onOpen, hl }: { w: GalleryWork;
   );
 }
 
-/** 加载中的一张:灰色的封面、几道灰条 */
-function GhostCard({ kind }: { kind: 'feat' | 'mini' }) {
-  return (
-    <span className={`gl-card ghost ${kind}`} aria-hidden="true">
-      <span className="gl-cover" />
-      <span className="gl-meta">
-        <i className="gl-bar" style={{ width: '46%' }} />
-        <i className="gl-bar" style={{ width: '24%' }} />
-        {kind === 'feat' ? (
-          <>
-            <i className="gl-bar" style={{ width: '92%' }} />
-            <i className="gl-bar" style={{ width: '70%' }} />
-          </>
-        ) : (
-          <i className="gl-bar" style={{ width: '80%' }} />
-        )}
-      </span>
-    </span>
-  );
-}
-
-function Foot() {
-  return (
-    <footer className="mw-foot">
-      <a href={SOURCE_URL} target="_blank" rel="noreferrer" data-link="source">
-        源代码
-      </a>
-      <a href={PRIVACY_URL} target="_blank" rel="noreferrer" data-link="privacy">
-        隐私政策
-      </a>
-      <a href={TERMS_URL} target="_blank" rel="noreferrer" data-link="terms">
-        用户协议
-      </a>
-      <ContactLink />
-      <BeianLinks className="mw-beian" />
-      <VersionText className="mw-ver" />
-    </footer>
-  );
-}
-
-/** 整页正中的一段说明(照「分享停了」那一页):图标、标题、一两句话、按钮 */
-function PageNote({ icon, title, lines, acts }: { icon: IconName; title: string; lines: ReactNode; acts: ReactNode }) {
-  return (
-    <div className="gl-note-box" role="status">
-      <span className="share-gone-ic">
-        <Icon name={icon} size={28} />
-      </span>
-      <h2>{title}</h2>
-      <p>{lines}</p>
-      <div className="share-gone-acts">{acts}</div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
-// 作品墙那一页
+// 作品墙那一页(界面在 GalleryPage.tsx,进作品墙才下载)
 
 export type Tab = 'all' | WorkKind;
-/** 回到这一页还是上次看的页签 */
-let lastTab: Tab = 'all';
-/** 搜索框里的字:点开作品再回来还在,回到我的世界就清空 */
-let lastFind = '';
+/** 回到作品墙还是上次看的页签;搜索框的字回到我的世界就清空 */
+export const galleryView: { tab: Tab; find: string } = { tab: 'all', find: '' };
 export function forgetGalleryFind(): void {
-  lastFind = '';
+  galleryView.find = '';
 }
 
 export interface GalleryPageProps {
@@ -257,399 +169,17 @@ export interface GalleryPageProps {
   onShown?: (id: string | null) => void;
 }
 
-const workKind = (w: GalleryWork | null | undefined) => w?.kind === 'world' || w?.kind === 'map';
-
-export function GalleryPage({ phone, onHome, onOpen, onPreset, onWorld, onPlanet, onMapCiv, shown, opening, onShown }: GalleryPageProps) {
-  const g = useGallery();
-  const [tab, setTabState] = useState<Tab>(lastTab);
-  const setTab = (t: Tab) => {
-    lastTab = t;
-    setTabState(t);
-  };
-  const [find, setFindState] = useState(lastFind);
-  const setFind = (v: string) => {
-    lastFind = v;
-    setFindState(v);
-  };
-  // 打字时框先跟上,列表晚一步筛(搜索那块第一次下载时照旧摆着原来的列表)
-  const q = useDeferredValue(find);
-  const findRef = useRef<HTMLInputElement>(null);
-  const [howto, setHowto] = useState(false);
-  const preset = shown?.kind === 'preset' ? shown : null;
-  const [presetW, setPresetW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(preset ? { w: preset, item: preset } : null);
-  useEffect(() => {
-    if (preset) setPresetW({ w: preset, item: preset });
-  }, [preset]);
-  const plugin = shown?.kind === 'plugin' && pluginsUiOn() ? shown : null;
-  const [pluginW, setPluginW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(plugin ? { w: plugin, item: plugin } : null);
-  useEffect(() => {
-    if (plugin) setPluginW({ w: plugin, item: plugin });
-  }, [plugin]);
-  const [workW, setWorkW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(() =>
-    shown && workKind(shown) ? { w: shown, item: shown } : opening && workKind(opening) ? { w: opening } : null,
-  );
-  useEffect(() => {
-    if (shown && workKind(shown)) setWorkW({ w: shown, item: shown });
-  }, [shown]);
-  useEffect(() => {
-    if (opening && workKind(opening)) setWorkW({ w: opening });
-  }, [opening]);
-  useEffect(() => {
-    if (shown?.kind === 'rules') openRulesWork(shown, shown.ruleLink ?? '');
-  }, [shown]);
-  // 规则作品的大卡不在这一页里:离开作品墙(后退、回我的世界)时一起关上,还在取的也作废
-  useEffect(
-    () => () => {
-      if (rulesWorkId(getRulesSheet())) closeRulesSheet();
-    },
-    [],
-  );
-  const sheet = useRulesSheet();
-  const shownId = presetW?.w.id ?? pluginW?.w.id ?? workW?.w.id ?? rulesWorkId(sheet);
-  const shownRef = useRef(onShown);
-  shownRef.current = onShown;
-  const firstShown = useRef(true);
-  useEffect(() => {
-    // 一进来什么都没开着:网址本来就是作品墙那一页的
-    if (firstShown.current && shownId === null) return void (firstShown.current = false);
-    firstShown.current = false;
-    shownRef.current?.(shownId);
-  }, [shownId]);
-  // 进来时取一次最新的(取到之前照旧摆着上次的)
-  useEffect(() => loadGallery(true), []);
-  // 服务器没开作品墙:回我的世界
-  useEffect(() => {
-    if (g.status === 'off') onHome();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [g.status]);
-  const open = (w: GalleryWork) =>
-    w.kind === 'preset' ? setPresetW({ w }) : w.kind === 'plugin' ? setPluginW({ w }) : w.kind === 'rules' ? openRulesWork(w) : onWorld ? setWorkW({ w }) : onOpen(w);
-  const list = g.list;
-
-  const homeBtn = (
-    <button className="mw-btn lg gl-lg" data-act="home" onClick={onHome}>
-      <Icon name="grid" size={16} />
-      我的世界
-    </button>
-  );
-  let body: ReactNode;
-  if (!list && g.status === 'error') {
-    body = (
-      <PageNote
-        icon="cloudoff"
-        title="暂时打不开作品墙"
-        lines={
-          <>
-            网络不通，或者我们的服务器在维护。
-            <br />
-            你自己的世界都在这个浏览器里，不受影响。
-          </>
-        }
-        acts={
-          <>
-            {homeBtn}
-            <button className="mw-btn lg gl-lg blue" data-act="gallery-retry" onClick={() => loadGallery(true)}>
-              <Icon name="again" size={16} />
-              再试一次
-            </button>
-          </>
-        }
-      />
-    );
-  } else if (!list) {
-    body = <GallerySkeleton phone={phone} />;
-  } else if (!list.works.length && !(pluginsUiOn() && list.plugins.length)) {
-    body = (
-      <PageNote
-        icon="image"
-        title="作品墙还没有作品"
-        lines={
-          <>
-            第一批作品正在挑，过些日子再来看。
-            <br />
-            想让自己的世界上墙，看看怎么投稿。
-          </>
-        }
-        acts={
-          <>
-            {homeBtn}
-            <button className="mw-btn lg gl-lg blue" data-act="gallery-howto" onClick={() => setHowto(true)}>
-              <Icon name="help" size={16} />
-              怎么上作品墙
-            </button>
-          </>
-        }
-      />
-    );
-  } else {
-    body = <GalleryBody list={list} phone={phone} tab={tab} onTab={setTab} onOpen={open} q={q} onClear={() => setFind('')} />;
-  }
-  const findBox = !(list ? !list.works.length && !(pluginsUiOn() && list.plugins.length) : g.status === 'error') && (
-    <div className="sb-search gl-find">
-      <Icon name="search" size={phone ? 17 : 15} />
-      <input
-        ref={findRef}
-        data-act="gallery-find"
-        value={find}
-        maxLength={40}
-        placeholder="搜作品名、作者"
-        aria-label="搜作品"
-        enterKeyHint="search"
-        spellCheck={false}
-        autoComplete="off"
-        onFocus={() => loadFound().catch(() => {})}
-        onChange={(e) => setFind(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key !== 'Escape' || !find) return;
-          e.stopPropagation();
-          setFind('');
-        }}
-      />
-      {find && (
-        <button
-          className="sb-clear"
-          data-act="gallery-find-x"
-          aria-label="清空"
-          title="清空"
-          onClick={() => {
-            setFind('');
-            findRef.current?.focus();
-          }}
-        >
-          <Icon name="close" size={8} />
-        </button>
-      )}
-    </div>
-  );
-
+export function GalleryPage(p: GalleryPageProps) {
   return (
-    <div className={`mw gl${phone ? ' mw-phone' : ''}`} role="main" aria-label="作品墙" data-testid="gallery" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
-      <header className="gl-top">
-        <div className="gl-row">
-          <button className="gl-back" data-act="gallery-home" onClick={onHome}>
-            <Icon name="back" size={17} />
-            我的世界
-          </button>
-          {phone && (
-            <button className="mw-btn round" data-act="gallery-howto" onClick={() => setHowto(true)}>
-              <Icon name="help" size={16} />
-              怎么投稿
-            </button>
-          )}
-        </div>
-        <div className="gl-head">
-          <div className="mw-heading">
-            <h1>作品墙</h1>
-            <p>{phone ? '作者投来、我们挑过的作品。点开随便看，想改就另存一份，出处会自动写上。' : '作者投来、我们挑过的世界、地图、新建参数和规则。点开随便看，想改就另存一份，出处会自动写上。'}</p>
-            {phone && findBox}
-          </div>
-          {!phone && (
-            <div className="gl-acts">
-              {findBox}
-              <button className="mw-btn" data-act="gallery-howto" onClick={() => setHowto(true)}>
-                <Icon name="help" size={16} />
-                怎么上作品墙
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-      {/* 换成搜的那块、它还在下载时照旧摆着原来的列表 */}
-      <Suspense fallback={null}>{body}</Suspense>
-      {!phone && <Foot />}
-      {phone && BEIAN.length > 0 && (
-        <footer className="mw-foot solo">
-          <BeianLinks className="mw-beian" />
-        </footer>
-      )}
-      {howto && <HowToDialog phone={phone} onClose={() => setHowto(false)} />}
-      {presetW && (
-        <PresetWorkDialog
-          phone={phone}
-          w={presetW.w}
-          item={presetW.item}
-          onClose={() => setPresetW(null)}
-          onUse={(p) => {
-            setPresetW(null);
-            onPreset(p);
-          }}
-        />
-      )}
-      {workW && onWorld && (
-        <Suspense fallback={null}>
-          <WorkDialog
-            key={workW.w.id}
-            phone={phone}
-            w={workW.w}
-            item={workW.item}
-            onClose={() => setWorkW(null)}
-            onWorld={onWorld}
-            onPlanet={(it) => onPlanet?.(it)}
-            onMapCiv={(it) => onMapCiv?.(it)}
-          />
-        </Suspense>
-      )}
-      {pluginW && pluginsUiOn() && (
-        <Suspense fallback={null}>
-          <PluginWorkDialog id={pluginW.w.id} w={pluginW.w} item={pluginW.item} phone={phone} inPlace onClose={() => setPluginW(null)} />
-        </Suspense>
-      )}
-    </div>
+    <Suspense fallback={null}>
+      <GalleryWall {...p} />
+    </Suspense>
   );
 }
-
-function GallerySkeleton({ phone }: { phone: boolean }) {
-  return (
-    <div className="gl-body" aria-busy="true">
-      <div className="gl-sec-h">
-        <h2>本月精选</h2>
-      </div>
-      <div className={phone ? 'gl-scroll' : 'gl-grid'}>
-        {[0, 1, 2, 3].map((i) => (
-          <GhostCard key={i} kind="feat" />
-        ))}
-      </div>
-      <div className="gl-sec-h">
-        <h2>正在进行的挑战</h2>
-      </div>
-      <div className="gl-chal ghost">
-        <div className="gl-chal-l">
-          <i className="gl-bar" style={{ width: '40%', height: 16 }} />
-          <i className="gl-bar" style={{ width: '22%' }} />
-          <i className="gl-bar" style={{ width: '90%' }} />
-          <i className="gl-bar" style={{ width: '70%' }} />
-        </div>
-        <div className="gl-chal-r">
-          {[0, 1, 2].map((i) => (
-            <GhostCard key={i} kind="mini" />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const TABS: { id: Tab; name: string }[] = [
-  { id: 'all', name: '全部' },
-  { id: 'world', name: '世界' },
-  { id: 'map', name: '地图' },
-  { id: 'preset', name: '新建参数' },
-  { id: 'rules', name: '规则' },
-];
 
 /** 调规则的入口关着时,规则作品不露 */
-function wallList(list: GalleryList): GalleryList {
+export function wallList(list: GalleryList): GalleryList {
   return rulesUiOn() ? list : { ...list, works: list.works.filter((w) => w.kind !== 'rules') };
-}
-
-function GalleryBody({
-  list: all,
-  phone,
-  tab: tab0,
-  onTab,
-  onOpen,
-  q,
-  onClear,
-}: {
-  list: GalleryList;
-  phone: boolean;
-  tab: Tab;
-  onTab: (t: Tab) => void;
-  onOpen: (w: GalleryWork) => void;
-  q: string;
-  onClear: () => void;
-}) {
-  const list = wallList(all);
-  const tabs = [...(rulesUiOn() ? TABS : TABS.filter((t) => t.id !== 'rules')), ...(pluginsUiOn() ? [{ id: 'plugin' as const, name: '插件' }] : [])];
-  const tab = tabs.some((t) => t.id === tab0) ? tab0 : 'all';
-  const byId = new Map(list.works.map((w) => [w.id, w]));
-  const feat = list.featured.filter((f) => byId.has(f.id));
-  const month = monthText(list.month);
-  const count = (t: Tab) => (t === 'all' ? list.works.length : t === 'plugin' ? list.plugins.length : list.works.filter((w) => w.kind === t).length);
-  const shown = tab === 'all' ? list.works : list.works.filter((w) => w.kind === tab);
-  const segOf = (n: (t: Tab) => number) => (
-    <div className={`mw-seg gl-seg${tabs.length > 5 ? ' six' : tabs.length > 4 ? ' five' : ''}`} role="tablist" aria-label="按种类看">
-      {tabs.map((t) => [
-        t.id === 'plugin' && <span key="bar" className="gl-seg-bar" aria-hidden="true" />,
-        <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} data-tab={t.id} onClick={() => onTab(t.id)}>
-          {t.name}
-          {!phone && <i>{n(t.id)}</i>}
-        </button>,
-      ])}
-    </div>
-  );
-  const seg = segOf(count);
-  if (q.trim()) return <GalleryFound list={list} q={q} tabs={tabs} tab={tab} phone={phone} seg={segOf} onTab={onTab} onOpen={onOpen} onClear={onClear} />;
-  return (
-    <div className="gl-body">
-      {feat.length > 0 && (
-        <section aria-label="本月精选">
-          <div className="gl-sec-h">
-            <h2>本月精选</h2>
-            <small>{phone ? month : `${month ? `${month}，` : ''}我们挑的 ${feat.length} 个`}</small>
-          </div>
-          <div className={phone ? 'gl-scroll' : 'gl-grid'}>
-            {feat.map((f) => (
-              <WorkCard key={f.id} w={byId.get(f.id)!} kind="feat" note={f.note} phone={phone} onOpen={onOpen} />
-            ))}
-          </div>
-        </section>
-      )}
-      {list.challenges.length > 0 && (
-        <section aria-label="正在进行的挑战">
-          <div className="gl-sec-h">
-            <h2>正在进行的挑战</h2>
-          </div>
-          {list.challenges.map((c) => {
-            const ws = c.works.map((id) => byId.get(id)).filter((w): w is GalleryWork => !!w);
-            return (
-              <div className="gl-chal" key={c.id} data-challenge={c.id}>
-                <div className="gl-chal-l">
-                  <h3>{c.title}</h3>
-                  {dueText(c.deadline) && <span className="gl-due">{dueText(c.deadline)}</span>}
-                  {c.blurb && <p>{c.blurb}</p>}
-                  {!phone && <span className="gl-chal-n">{ws.length ? `收到 ${ws.length} 个作品` : '还没收到作品'}</span>}
-                </div>
-                {ws.length > 0 && (
-                  <div className="gl-chal-r">
-                    {ws.map((w) => (
-                      <WorkCard key={w.id} w={w} kind="mini" phone={phone} onOpen={onOpen} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </section>
-      )}
-      <section aria-label="全部作品">
-        <div className="gl-sec-h">
-          <h2>全部作品</h2>
-          <small>按上架时间</small>
-          {!phone && (
-            <>
-              <span className="gl-sp" />
-              {seg}
-            </>
-          )}
-        </div>
-        {phone && seg}
-        {tab === 'plugin' ? (
-          <Suspense fallback={null}>
-            <PluginCards works={list.plugins} phone={phone} onOpen={onOpen} />
-          </Suspense>
-        ) : shown.length ? (
-          <div className="gl-grid" role="list">
-            {shown.map((w) => (
-              <WorkCard key={w.id} w={w} kind="card" phone={phone} onOpen={onOpen} />
-            ))}
-          </div>
-        ) : (
-          <p className="gl-none">还没有{TABS.find((t) => t.id === tab)?.name}作品</p>
-        )}
-      </section>
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -686,111 +216,7 @@ export function GalleryFeatured({ phone, onOpen, onGallery }: { phone: boolean; 
 }
 
 // ---------------------------------------------------------------------------
-// 怎么上作品墙
-
-function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }) {
-  const contact = useContact();
-  const fullOn = !!useFullOverview();
-  const site = useServerSubmit();
-  const plugins = site.plugin && pluginsUiOn();
-  const three = (
-    <div className="acct-grp gl-three">
-      <div className="acct-gr">
-        <b>作品</b>
-        <dl className="gl-kinds">
-          <dt>世界</dt>
-          <dd>存档菜单里「存成文件」，把文件发给管理员；只会复制配方链接也行，管理员替你存成文件{fullOn ? '；传到账号后发分享链接也行' : ''}</dd>
-          <dt>地图</dt>
-          <dd>在这张地图上打造一个文明，打开它，在存档菜单里点「复制配方链接」（历史没改过，我们当地图收）</dd>
-          <dt>新建参数</dt>
-          <dd>预设菜单里的「复制分享链接…」，连规则一起的也行</dd>
-          <dt>规则</dt>
-          <dd>调规则那一页右上的「分享」，复制链接</dd>
-        </dl>
-      </div>
-      <div className="acct-gr">
-        <b>署名</b>
-        <span>作品墙上显示的名字，用笔名就行</span>
-      </div>
-      <div className="acct-gr">
-        <b>一句话介绍</b>
-        <span>40 字以内，说说它特别在哪</span>
-      </div>
-    </div>
-  );
-  const terms = (
-    <ol className="gl-ol">
-      {TERMS.map((t, i) => (
-        <li key={i}>{t}</li>
-      ))}
-    </ol>
-  );
-  return (
-    <Dialog phone={phone} label="怎么上作品墙" width={600} onClose={onClose} testId="gallery-howto" className="gl-howto">
-      {site.on ? (
-        <div className="acct-body">
-          <p className="acct-lead">作品墙上的作品都是作者投来、我们看过才放上去的。有两种投法：</p>
-          <h3 className="gl-h3 gl-way">
-            有网站账号：在网站上直接投{site.inviteOnly && <small>现在只开放给收到邀请的人</small>}
-          </h3>
-          <div className="acct-grp gl-three" data-testid="howto-site">
-            <div className="acct-gr">
-              <b>在哪投</b>
-              <dl className="gl-kinds">
-                <dt>世界</dt>
-                <dd>存档菜单里的「投到作品墙…」</dd>
-                <dt>地图</dt>
-                <dd>「我的世界」的「地图」里点开它，点「投到作品墙…」</dd>
-                <dt>新建参数</dt>
-                <dd>预设菜单里的「投到作品墙…」</dd>
-                <dt>规则</dt>
-                <dd>调规则那一页右上「···」里</dd>
-                {plugins && (
-                  <>
-                    <dt>插件</dt>
-                    <dd>插件页里选中你装上的插件，点「投到作品墙…」</dd>
-                  </>
-                )}
-              </dl>
-            </div>
-            <div className="acct-gr">
-              <b>之后</b>
-              <span>结果发邮件告诉你，也在账号窗的「我的投稿」里看；没审之前能撤回</span>
-            </div>
-          </div>
-          <h3 className="gl-h3 gl-way">没有账号：到 QQ 交流群找管理员，带上三样{plugins && <small>插件不收，要在网站上投</small>}</h3>
-          {three}
-          <p className="acct-small gl-agree">在群里投时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
-          <h3 className="gl-h3">投之前请知道</h3>
-          {terms}
-        </div>
-      ) : (
-        <div className="acct-body">
-          <p className="acct-lead">作品墙上的作品都是作者投来、我们看过才放上去的。网站上不收稿，请到 QQ 交流群里找管理员，带上三样：</p>
-          {three}
-          <h3 className="gl-h3">投之前请知道</h3>
-          {terms}
-          <p className="acct-small">投稿时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
-        </div>
-      )}
-      <div className="acct-foot">
-        <span className="acct-sp" />
-        <button className="acct-btn" data-act="howto-ok" onClick={onClose}>
-          知道了
-        </button>
-        {contact && (
-          <a className="acct-btn blue" href={contact.url} target="_blank" rel="noreferrer" data-link="contact">
-            <Icon name="bubble" size={15} />
-            加交流群
-          </a>
-        )}
-      </div>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 新建参数作品
+// 新建参数作品的七格(新建参数窗、地图作品介绍窗共用)
 
 /** 这套参数的七格:种子、陆地比例、大陆数量、板块数量、造山强度、气温和降水、精细度 */
 export function presetRows(p: SharedPreset): [string, string][] {
@@ -807,175 +233,24 @@ export function presetRows(p: SharedPreset): [string, string][] {
   ];
 }
 
-function PresetWorkDialog({ phone, w, item, onClose, onUse }: { phone: boolean; w: GalleryWork; item?: GalleryItem; onClose: () => void; onUse: (p: SharedPreset) => void }) {
-  const [got, setGot] = useState<{ p: SharedPreset } | { error: string; gone?: boolean } | null>(() => (item ? read(item) : null));
-  const [report, setReport] = useState(false);
-  const g = useGallery();
-  const reported = g.rev >= 0 && wasReported(w.id);
-  useEffect(() => {
-    if (item) return;
-    let alive = true;
-    fetchWork(w.id).then(
-      (it) => alive && setGot(read(it)),
-      (e: unknown) => {
-        if (!alive) return;
-        if (isWorkGone(e)) {
-          setGot({ error: '这个作品已经撤下了', gone: true });
-          loadGallery(true);
-        } else setGot({ error: e instanceof Error ? e.message : String(e) });
-      },
-    );
-    return () => {
-      alive = false;
-    };
-  }, [w.id, item]);
-  const ok = got && 'p' in got ? got.p : null;
-  // 调规则的入口关着时不露
-  const okRules = rulesUiOn() ? ok?.rules : undefined;
-  const head = (
-    <div className="gl-pcover" style={{ backgroundImage: coverUrl(w.id) ? `url("${coverUrl(w.id)}")` : undefined }}>
-      <button className="acct-x" onClick={onClose} title="关闭" aria-label="关闭">
-        <Icon name="close" size={14} />
-      </button>
-    </div>
-  );
-  return (
-    <Dialog phone={phone} label={w.title || '新建参数'} width={560} onClose={onClose} head={head} testId="gallery-preset" className="gl-pdlg">
-      <div className="acct-head">
-        <h2>{w.title || '未命名'}</h2>
-      </div>
-      <div className="acct-body">
-        <div className="gl-who">
-          <span className="gl-tag">新建参数</span>
-          {w.by}
-        </div>
-        {w.blurb && <p className="gl-pblurb">{w.blurb}</p>}
-        {ok ? (
-          <div className={`acct-grp gl-pp${okRules ? ' rl' : ''}`} data-testid="preset-rows">
-            {presetRows(ok).map(([k, v], i, all) => (
-              <div className={`acct-gr${i === all.length - 1 && all.length % 2 ? ' wide' : ''}`} key={k}>
-                <span className="k">{k}</span>
-                <span className="v">{v}</span>
-              </div>
-            ))}
-            {okRules && (
-              <button
-                className="acct-gr gl-prl"
-                data-act="gallery-preset-rules"
-                onClick={() => {
-                  // 先关掉这张卡:规则那一页盖不住它,在那一页点「用它新建世界」也要回到作品墙上
-                  onClose();
-                  openRulesSheet({ kind: 'shared', rules: okRules, from: 'link' });
-                }}
-              >
-                <span className="k">规则</span>
-                <span className="v">
-                  <small>改了 {Object.keys(okRules.values).length + Object.keys(okRules.biomes ?? {}).length} 项</small>
-                  {okRules.name}
-                  <Icon name="chevron" size={14} />
-                </span>
-              </button>
-            )}
-          </div>
-        ) : got ? (
-          <p className="acct-err" role="alert">
-            {(got as { error: string }).error}
-          </p>
-        ) : (
-          <div className="acct-grp gl-pp ghost" aria-busy="true">
-            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-              <div className="acct-gr" key={i}>
-                <i className="gl-bar" style={{ width: '40%' }} />
-              </div>
-            ))}
-          </div>
-        )}
-        {ok && (
-          <p className="acct-small">
-            {ok.seed !== undefined
-              ? '带着种子：新建出来就是上面这颗星球。在新建窗口里换个种子，大陆的样子照这套参数、位置会不一样。'
-              : '没带种子：新建时随机一个种子，大陆的样子照这套参数，每次都不一样。'}
-            {okRules && `带着规则：打造文明时先选好「${okRules.name}」，到那一步还能换。`}
-          </p>
-        )}
-      </div>
-      <div className="acct-foot">
-        <button className="acct-btn gl-ghost" data-act="gallery-report" disabled={reported} onClick={() => setReport(true)}>
-          <Icon name={reported ? 'check' : 'flag'} size={15} />
-          {reported ? '已举报' : '举报'}
-        </button>
-        <span className="acct-sp" />
-        <button className="acct-btn lg blue" data-act="gallery-use-preset" disabled={!ok} onClick={() => ok && onUse(ok)}>
-          用这套参数新建
-        </button>
-      </div>
-      {report && <ReportDialog phone={phone} work={w} onClose={() => setReport(false)} />}
-    </Dialog>
-  );
-}
-
-/** 作品里的预设串 → 分享来的那一套(名字用作品名,带上署名) */
-function read(it: GalleryItem): { p: SharedPreset } | { error: string } {
-  const r = decodePresetHash(`#${it.preset ?? ''}`);
-  if (!r.ok) return { error: r.error };
-  return { p: { ...r.preset, name: it.title || r.preset.name, gallery: { by: it.by, id: it.id, title: it.title } } };
-}
-
 // ---------------------------------------------------------------------------
 // 打开作品的地址:取的时候、撤下了、取不到
 
-export function WorkGone({ phone, state, onHome, onGallery, onRetry }: { phone: boolean; state: WorkGoneState; onHome: () => void; onGallery: () => void; onRetry: () => void }) {
-  const plugin = typeof state === 'object' && 'plugin' in state ? state.plugin : null;
-  const gone = state === 'gone' || plugin !== null;
-  return (
-    <div className={`share-gone${phone ? ' phone' : ''}`} role="main" data-testid="gallery-gone" onPointerDown={stop} onClick={stop} onWheel={stop}>
-      {state !== 'loading' && (
-        <div className="share-gone-box">
-          <span className="share-gone-ic">
-            <Icon name={plugin ? 'ban' : gone ? 'image' : 'cloudoff'} size={28} />
-          </span>
-          <h2>{plugin ? '这个插件已经停用了' : plugin !== null ? '这个插件已经撤下了' : gone ? '这个作品已经撤下了' : '暂时打不开这个作品'}</h2>
-          {plugin !== null ? (
-            <p>
-              {plugin ? `${plugin}。` : '作者撤下了它。'}
-              <br />
-              {plugin ? '装了它的人：它不再启动，用过它的世界照常能看。' : '装了它的人照常能用，只是作品墙上不再列出。'}
-            </p>
-          ) : state === 'gone' ? (
-            <p>
-              作者要求撤下，或者它不再适合公开展示。
-              <br />
-              如果你之前另存过，它还在你的「我的世界」里。
-            </p>
-          ) : (
-            typeof state === 'object' && 'error' in state && <p>{state.error}</p>
-          )}
-          <div className="share-gone-acts">
-            <button className="acct-btn lg" data-act="home" onClick={onHome}>
-              <Icon name="grid" size={16} />
-              我的世界
-            </button>
-            {gone ? (
-              <button className="acct-btn lg blue" data-act="gallery" onClick={onGallery}>
-                <Icon name="image" size={16} />
-                去作品墙看看
-              </button>
-            ) : (
-              <button className="acct-btn lg blue" data-act="gallery-retry" onClick={onRetry}>
-                <Icon name="again" size={16} />
-                再试一次
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-      {!phone && state !== 'loading' && <Foot />}
-    </div>
-  );
+export interface WorkGoneProps {
+  phone: boolean;
+  state: WorkGoneState;
+  onHome: () => void;
+  onGallery: () => void;
+  onRetry: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// 打开一个作品时顶上那一条、「拿来用」、举报
+export function WorkGone(p: WorkGoneProps) {
+  return (
+    <Suspense fallback={null}>
+      <WorkGoneView {...p} />
+    </Suspense>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // 举报
