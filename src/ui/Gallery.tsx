@@ -16,7 +16,7 @@
  * 打开世界 / 地图作品以后的顶条、地图作品的星球在 GalleryWork.tsx(首页不用下载星球那一套)。
  * 样式在 gallery.css;卡片、页签、弹窗、单选照「我的世界」(worlds.css)和账号窗口(account.css)的。
  */
-import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useDeferredValue, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
 import { Dialog } from './AccountDialogs';
 import { useContact } from './contact';
@@ -66,7 +66,7 @@ const WorkDialog = lazy(() =>
 
 type GalleryPluginsModule = typeof import('./plugins/GalleryPlugins');
 const loadPlugins = () => import('./plugins/GalleryPlugins');
-const PluginCards = lazy(() =>
+export const PluginCards = lazy(() =>
   loadPlugins().then(
     (m) => ({ default: m.PluginCards }),
     () => ({ default: (() => <p className="gl-none">没能打开插件，重新加载网页试试</p>) as GalleryPluginsModule['PluginCards'] }),
@@ -76,6 +76,14 @@ const PluginWorkDialog = lazy(() =>
   loadPlugins().then(
     (m) => ({ default: m.PluginWorkDialog }),
     () => ({ default: (() => null) as unknown as GalleryPluginsModule['PluginWorkDialog'] }),
+  ),
+);
+// 搜的时候列表那一块:框里有字才下载,不占首页
+const loadFound = () => import('./GalleryFound');
+const GalleryFound = lazy(() =>
+  loadFound().then(
+    (m) => ({ default: m.GalleryFound }),
+    () => ({ default: (() => null) as unknown as (typeof import('./GalleryFound'))['GalleryFound'] }),
   ),
 );
 
@@ -125,32 +133,36 @@ function Cover({ w }: { w: GalleryWork }) {
   );
 }
 
+/** 搜的时候把搜到的字标出来 */
+type Hl = (s: string) => ReactNode;
+
 /** 规则作品卡上那一行:「改了 6 项」+ 最显眼的几处(还有没写到的接省略号) */
-function RulesLine({ w }: { w: GalleryWork }) {
+function RulesLine({ w, t }: { w: GalleryWork; t: Hl }) {
   const r = w.rules;
-  if (!r) return w.blurb ? <span className="gl-blurb">{w.blurb}</span> : null;
+  if (!r) return w.blurb ? <span className="gl-blurb">{t(w.blurb)}</span> : null;
   const items = /^(改了|和官方)/.test(r.brief) ? 0 : r.brief.split('、').length;
   return (
     <span className="gl-rule">
       <span className="gl-n">改了 {r.changed} 项</span>
-      {r.brief}
+      {t(r.brief)}
       {items > 0 && r.changed > items ? '……' : ''}
     </span>
   );
 }
 
 /** 一张作品卡:card = 全部作品里的(封面、作品名、上架日期、署名、一句话,规则作品换成改了几项);feat = 精选(多一段推荐语);mini = 挑战里、空页面的(封面、名字、署名) */
-function WorkCard({ w, kind, note, phone, onOpen }: { w: GalleryWork; kind: 'card' | 'feat' | 'mini'; note?: string; phone: boolean; onOpen: (w: GalleryWork) => void }) {
+export function WorkCard({ w, kind, note, phone, onOpen, hl }: { w: GalleryWork; kind: 'card' | 'feat' | 'mini'; note?: string; phone: boolean; onOpen: (w: GalleryWork) => void; hl?: Hl }) {
+  const t = (s: string) => (hl ? hl(s) : s);
   return (
-    <button className={`gl-card ${kind}`} data-work={w.id} data-kind={w.kind} onClick={() => onOpen(w)}>
+    <button className={`gl-card ${kind}${hl ? ' found' : ''}`} data-work={w.id} data-kind={w.kind} onClick={() => onOpen(w)}>
       <Cover w={w} />
       <span className="gl-meta">
         <span className="gl-row1">
-          <b className="gl-name">{w.title || '未命名'}</b>
+          <b className="gl-name">{t(w.title || '未命名')}</b>
           {kind === 'card' && !phone && <span className="gl-at">{dayText(w.addedAt)}</span>}
         </span>
-        {w.by && <span className="gl-by">{w.by}</span>}
-        {kind === 'card' && (w.kind === 'rules' ? <RulesLine w={w} /> : w.blurb && <span className="gl-blurb">{w.blurb}</span>)}
+        {w.by && <span className="gl-by">{t(w.by)}</span>}
+        {kind === 'card' && (w.kind === 'rules' ? <RulesLine w={w} t={t} /> : w.blurb && <span className="gl-blurb">{t(w.blurb)}</span>)}
         {kind === 'feat' && note && <span className="gl-note">{note}</span>}
       </span>
     </button>
@@ -214,9 +226,14 @@ function PageNote({ icon, title, lines, acts }: { icon: IconName; title: string;
 // ---------------------------------------------------------------------------
 // 作品墙那一页
 
-type Tab = 'all' | WorkKind;
+export type Tab = 'all' | WorkKind;
 /** 回到这一页还是上次看的页签 */
 let lastTab: Tab = 'all';
+/** 搜索框里的字:点开作品再回来还在,回到我的世界就清空 */
+let lastFind = '';
+export function forgetGalleryFind(): void {
+  lastFind = '';
+}
 
 export interface GalleryPageProps {
   phone: boolean;
@@ -249,6 +266,14 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, onWorld, onPlanet
     lastTab = t;
     setTabState(t);
   };
+  const [find, setFindState] = useState(lastFind);
+  const setFind = (v: string) => {
+    lastFind = v;
+    setFindState(v);
+  };
+  // 打字时框先跟上,列表晚一步筛(搜索那块第一次下载时照旧摆着原来的列表)
+  const q = useDeferredValue(find);
+  const findRef = useRef<HTMLInputElement>(null);
   const [howto, setHowto] = useState(false);
   const preset = shown?.kind === 'preset' ? shown : null;
   const [presetW, setPresetW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(preset ? { w: preset, item: preset } : null);
@@ -357,8 +382,45 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, onWorld, onPlanet
       />
     );
   } else {
-    body = <GalleryBody list={list} phone={phone} tab={tab} onTab={setTab} onOpen={open} />;
+    body = <GalleryBody list={list} phone={phone} tab={tab} onTab={setTab} onOpen={open} q={q} onClear={() => setFind('')} />;
   }
+  const findBox = !(list ? !list.works.length && !(pluginsUiOn() && list.plugins.length) : g.status === 'error') && (
+    <div className="sb-search gl-find">
+      <Icon name="search" size={phone ? 17 : 15} />
+      <input
+        ref={findRef}
+        data-act="gallery-find"
+        value={find}
+        maxLength={40}
+        placeholder="搜作品名、作者"
+        aria-label="搜作品"
+        enterKeyHint="search"
+        spellCheck={false}
+        autoComplete="off"
+        onFocus={() => loadFound().catch(() => {})}
+        onChange={(e) => setFind(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape' || !find) return;
+          e.stopPropagation();
+          setFind('');
+        }}
+      />
+      {find && (
+        <button
+          className="sb-clear"
+          data-act="gallery-find-x"
+          aria-label="清空"
+          title="清空"
+          onClick={() => {
+            setFind('');
+            findRef.current?.focus();
+          }}
+        >
+          <Icon name="close" size={8} />
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div className={`mw gl${phone ? ' mw-phone' : ''}`} role="main" aria-label="作品墙" data-testid="gallery" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
@@ -379,16 +441,21 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, onWorld, onPlanet
           <div className="mw-heading">
             <h1>作品墙</h1>
             <p>{phone ? '作者投来、我们挑过的作品。点开随便看，想改就另存一份，出处会自动写上。' : '作者投来、我们挑过的世界、地图、新建参数和规则。点开随便看，想改就另存一份，出处会自动写上。'}</p>
+            {phone && findBox}
           </div>
           {!phone && (
-            <button className="mw-btn" data-act="gallery-howto" onClick={() => setHowto(true)}>
-              <Icon name="help" size={16} />
-              怎么上作品墙
-            </button>
+            <div className="gl-acts">
+              {findBox}
+              <button className="mw-btn" data-act="gallery-howto" onClick={() => setHowto(true)}>
+                <Icon name="help" size={16} />
+                怎么上作品墙
+              </button>
+            </div>
           )}
         </div>
       </header>
-      {body}
+      {/* 换成搜的那块、它还在下载时照旧摆着原来的列表 */}
+      <Suspense fallback={null}>{body}</Suspense>
       {!phone && <Foot />}
       {phone && BEIAN.length > 0 && (
         <footer className="mw-foot solo">
@@ -475,7 +542,23 @@ function wallList(list: GalleryList): GalleryList {
   return rulesUiOn() ? list : { ...list, works: list.works.filter((w) => w.kind !== 'rules') };
 }
 
-function GalleryBody({ list: all, phone, tab: tab0, onTab, onOpen }: { list: GalleryList; phone: boolean; tab: Tab; onTab: (t: Tab) => void; onOpen: (w: GalleryWork) => void }) {
+function GalleryBody({
+  list: all,
+  phone,
+  tab: tab0,
+  onTab,
+  onOpen,
+  q,
+  onClear,
+}: {
+  list: GalleryList;
+  phone: boolean;
+  tab: Tab;
+  onTab: (t: Tab) => void;
+  onOpen: (w: GalleryWork) => void;
+  q: string;
+  onClear: () => void;
+}) {
   const list = wallList(all);
   const tabs = [...(rulesUiOn() ? TABS : TABS.filter((t) => t.id !== 'rules')), ...(pluginsUiOn() ? [{ id: 'plugin' as const, name: '插件' }] : [])];
   const tab = tabs.some((t) => t.id === tab0) ? tab0 : 'all';
@@ -484,17 +567,19 @@ function GalleryBody({ list: all, phone, tab: tab0, onTab, onOpen }: { list: Gal
   const month = monthText(list.month);
   const count = (t: Tab) => (t === 'all' ? list.works.length : t === 'plugin' ? list.plugins.length : list.works.filter((w) => w.kind === t).length);
   const shown = tab === 'all' ? list.works : list.works.filter((w) => w.kind === tab);
-  const seg = (
+  const segOf = (n: (t: Tab) => number) => (
     <div className={`mw-seg gl-seg${tabs.length > 5 ? ' six' : tabs.length > 4 ? ' five' : ''}`} role="tablist" aria-label="按种类看">
       {tabs.map((t) => [
         t.id === 'plugin' && <span key="bar" className="gl-seg-bar" aria-hidden="true" />,
         <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} data-tab={t.id} onClick={() => onTab(t.id)}>
           {t.name}
-          {!phone && <i>{count(t.id)}</i>}
+          {!phone && <i>{n(t.id)}</i>}
         </button>,
       ])}
     </div>
   );
+  const seg = segOf(count);
+  if (q.trim()) return <GalleryFound list={list} q={q} tabs={tabs} tab={tab} phone={phone} seg={segOf} onTab={onTab} onOpen={onOpen} onClear={onClear} />;
   return (
     <div className="gl-body">
       {feat.length > 0 && (

@@ -46,7 +46,7 @@ function civIndexes(civ: Civ, list: readonly unknown[]): number[] {
 function whyNot(civ: Civ, v: Intervention, i: number): string | null {
   const r = interventionOutcome(civ, i);
   if (r.annal >= 0) return r.ok ? null : (r.why ?? '没有生效');
-  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || !v.a) return '没有推演到这一条';
+  if (!('a' in v) || !v.a) return '没有推演到这一条';
   const id = polityIdOf(civ, v.a);
   if (id < 0) return '新历史里没有这个国家';
   const p = civ.polities[id];
@@ -81,7 +81,7 @@ function targetOf(civ: Civ, v: Intervention, i: number): MapSelection | null {
     const at = r >= 0 ? r : home;
     return at >= 0 && at < civ.regions.count ? { kind: 'region', id: at } : null;
   }
-  if (!v.a) return null;
+  if (!('a' in v) || !v.a) return null;
   // 让人物去世、改君主倾向、让他掌权、为他联姻:那个人(新历史里没有他 = 他的国家)
   if (v.kind === 'death' || v.kind === 'temper' || v.kind === 'regent' || v.kind === 'marry') {
     // 让作者的人物掌权:那国里的他(推演里掌了权才有)

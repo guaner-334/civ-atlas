@@ -11,7 +11,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { windAt } from '../src/gen/climate';
 import { geometryOf } from '../src/gen/geometry';
-import type { ClimateInput, ClimateReply, HeightInput, HeightReply, LayersInput, LayersReply, MapShared, MapWorldParams } from '../src/gen/mapHooks';
+import type { ClimateInput, ClimateReply, HeightInput, HeightReply, LayersInput, LayersReply, MapShared, MapWorldParams, RunoffInput, RunoffReply, SeaIceInput, SeaIceReply } from '../src/gen/mapHooks';
 import { mapHelpers, type ComponentsResult, type DistanceResult, type FlowResult, type MapHelpers, type NoiseOptions, type WestEastResult } from '../src/gen/mapHelpers';
 import { quickjsMapPlugin } from '../src/gen/quickjs/map';
 import type { MapBoxer } from '../src/mapPluginRun';
@@ -253,13 +253,17 @@ describe('各自的效果和滑条(种子 7,1.2 万块)', () => {
 type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 describe('编辑器用的类型', () => {
-  it('examples/plugins/civ-atlas-map.d.ts 里三个口子递进来的、交回去的、帮手和接口第 1 版一样(typecheck 时查)', () => {
+  it('examples/plugins/civ-atlas-map.d.ts 里各个口子递进来的、交回去的、帮手和接口一样(typecheck 时查)', () => {
     const same: [
       Same<Dts.MapShared, MapShared>,
       Same<Dts.HeightInput, HeightInput>,
       Same<Dts.HeightReply, HeightReply>,
       Same<Dts.ClimateInput, ClimateInput>,
       Same<Dts.ClimateReply, ClimateReply>,
+      Same<Dts.SeaIceInput, SeaIceInput>,
+      Same<Dts.SeaIceReply, SeaIceReply>,
+      Same<Dts.RunoffInput, RunoffInput>,
+      Same<Dts.RunoffReply, RunoffReply>,
       Same<Dts.LayersInput, LayersInput>,
       Same<Dts.LayersReply, LayersReply>,
       Same<Dts.MapHelpers, MapHelpers>,
@@ -269,7 +273,7 @@ describe('编辑器用的类型', () => {
       Same<Dts.ComponentsResult, ComponentsResult>,
       Same<Dts.WestEastResult, WestEastResult>,
       Same<Dts.MapWorldParams, MapWorldParams>,
-    ] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+    ] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     expect(same.every(Boolean)).toBe(true);
   });
 });

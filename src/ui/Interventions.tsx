@@ -25,6 +25,7 @@ import {
   DISASTER_NAMES,
   TREK_DIR_NAMES,
   cleanIntervention,
+  isCommandOnly,
   keyCells,
   parsePersonKey,
   polityKey,
@@ -283,6 +284,8 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
 }
 
 function ivText(civ: Civ, v: Intervention, i: number, a: string | undefined): string {
+  // 只有推演插件下得了的几种不进干预页
+  if (isCommandOnly(v)) return '';
   if (v.kind === 'found') {
     const made = i >= 0 ? foundedBy(civ, i) : -1;
     const shown = made >= 0 ? `,即${nameAt(civ.polities[made], v.from)}` : v.name ? `(号${v.name})` : '';
@@ -399,7 +402,7 @@ function authorName(civ: Civ, char: number): string {
  * a = 下令的国家怎么称呼:国家面板下的令用面板标题上的名字(用户点的那个),不给 = 生效那年的名字
  */
 export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: string): string {
-  if (v.kind === 'found' || v.kind === 'disaster' || v.kind === 'trek' || v.kind === 'stay') return interventionText(civ, v, i, a);
+  if (v.kind === 'found' || v.kind === 'disaster' || v.kind === 'trek' || v.kind === 'stay' || isCommandOnly(v)) return interventionText(civ, v, i, a);
   const A = a ?? keyName(civ, v.a, v.from);
   switch (v.kind) {
     case 'protect':
@@ -418,7 +421,7 @@ export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: stri
 
 /** 下令的国家在生效那一年叫什么(立国没有下令的国家 = null) */
 export function interventionActorThen(civ: Civ, v: Intervention): string | null {
-  return v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || !v.a ? null : keyName(civ, v.a, v.from);
+  return !('a' in v) || !v.a ? null : keyName(civ, v.a, v.from);
 }
 
 let owners: Owners | undefined;
@@ -480,7 +483,7 @@ export function polityOrders(civ: Civ, id: number, list: readonly unknown[]): { 
         !!e.v &&
         (e.v.kind === 'found'
           ? foundedBy(civ, e.c) === id
-          : e.v.kind !== 'trek' && e.v.kind !== 'stay' && (e.v.a === key || ((e.v.kind === 'ally' || e.v.kind === 'declare') && e.v.b === key))),
+          : 'a' in e.v && (e.v.a === key || ((e.v.kind === 'ally' || e.v.kind === 'declare') && e.v.b === key))),
     );
 }
 
