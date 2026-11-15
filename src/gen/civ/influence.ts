@@ -57,6 +57,22 @@ export const OFFICIAL_INFLUENCES: readonly InfluencePoint[] = [
   { id: 'war.length', unit: 'polity', op: 'mul', min: 0.25, max: 4 },
   /** 一场仗想拿下几州(按攻方;同上) */
   { id: 'war.goal', unit: 'polity', op: 'mul', min: 0.25, max: 4 },
+  /** 攻下这一州的城时洗劫的几率(不超过官方的上限) */
+  { id: 'sack.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
+  /** 攻下这一州的城时毁城的几率(同上) */
+  { id: 'ruin.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
+  /** 这一州被毁的城重建的几率 */
+  { id: 'rebuild.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
+  /** 守这一州的兵力倍数(谁守都乘;打仗时挑打谁、打哪州估的胜率也跟着变) */
+  { id: 'defense.power', unit: 'region', op: 'mul', min: 0.25, max: 4 },
+  /** 自己起的瘟疫传进这一州的几率(作者、插件下的瘟疫和全球大疫不算) */
+  { id: 'plague.spread', unit: 'region', op: 'mul', min: 0, max: 4 },
+  /** 饥荒:这一州成为灾年中心、被饥荒波及的几率(折损多少照旧) */
+  { id: 'famine.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
+  /** 民族分化:一片州分成新民族的几率(按这一片州的平均) */
+  { id: 'diverge.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
+  /** 大迁徙:一族动身的赔率(按这一族的发源州) */
+  { id: 'trek.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
 ];
 
 /** 按国的口里一国的数:后立的国(超出插件交的格数)按不影响算 */

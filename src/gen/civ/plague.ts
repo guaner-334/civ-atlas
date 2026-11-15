@@ -386,13 +386,15 @@ function hook(sim: CivSim, pl: PlagueModel, calamity: Calamity | undefined): voi
       return;
     }
     const dense = Math.max(DENSE_MIN, Math.min(1, pop / DENSE));
+    const spreadIn = ob.level ? null : sim.influence?.get('plague.spread');
     for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
       const j = reg.adj[e];
       if (j >= R || ob.hit[j]) continue;
       const kind = reg.adjKind[e];
       if (kind === AdjKind.SeaRoute && (!sail || !pm.port[j])) continue;
       if (cityNow(j, t) < 0) continue;
-      if (keyed4(base, ob.k, reg.seat[r], reg.seat[j], U_SPREAD) >= vir * (KIND[kind] ?? 1) * dense) continue;
+      const p = vir * (KIND[kind] ?? 1) * dense;
+      if (keyed4(base, ob.k, reg.seat[r], reg.seat[j], U_SPREAD) >= (spreadIn ? p * spreadIn[j] : p)) continue;
       ob.hit[j] = 1;
       out.push(j);
     }
