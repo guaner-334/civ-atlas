@@ -214,6 +214,7 @@ describe('首页不带沙箱', () => {
     expect([...pulls].map((f) => path.relative(ROOT, f).replace(/\\/g, '/')).sort()).toEqual([
       'src/mapPluginRun.ts',
       'src/simPluginRun.ts',
+      'src/ui/helperPictures.ts',
       'src/ui/helperTrial.tsx',
       'src/ui/plugins/DevCard.tsx',
       'src/ui/plugins/GalleryPlugins.tsx',

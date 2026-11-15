@@ -95,8 +95,10 @@ export function drawPicture(kind: PicKind, spec: PicSpec): HTMLCanvasElement {
     ctx.drawImage(b.halves[1], half, 0, half, PIC_H);
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.fillRect(half - 1.5, 0, 3, PIC_H);
-    chip(ctx, '不装', 18, 18, 'dark');
-    chip(ctx, '装上', half + 18, 18, 'dark');
+    // 封面显示得小,「不装」「装上」放大一号
+    const big = kind === 'card';
+    chip(ctx, '不装', 18, 18, 'dark', false, big);
+    chip(ctx, '装上', half + 18, 18, 'dark', false, big);
   } else {
     drawCrop(ctx, b.big, b.r, 0, 0, PIC_W, PIC_H);
     f = picFrame(b.r, b.big.W, b.big.H);
@@ -129,10 +131,10 @@ function roundBox(ctx: Ctx, x: number, y: number, w: number, h: number, r: numbe
 }
 
 /** 小牌子:dark = 深底白字(「不装」「装上」),light = 白底黑字(年份);right = x 是右边 */
-function chip(ctx: Ctx, text: string, x: number, y: number, look: 'dark' | 'light', right = false) {
-  ctx.font = `600 ${look === 'dark' ? 20 : 21}px ${FONT}`;
-  const w = ctx.measureText(text).width + (look === 'dark' ? 26 : 34);
-  const h = look === 'dark' ? 38 : 44;
+function chip(ctx: Ctx, text: string, x: number, y: number, look: 'dark' | 'light', right = false, big = false) {
+  ctx.font = `600 ${look === 'dark' ? (big ? 28 : 20) : 21}px ${FONT}`;
+  const w = ctx.measureText(text).width + (look === 'dark' ? (big ? 32 : 26) : 34);
+  const h = look === 'dark' ? (big ? 50 : 38) : 44;
   const left = right ? x - w : x;
   roundBox(ctx, left, y, w, h, look === 'dark' ? 8 : 12, look === 'dark' ? 'rgba(28,28,30,0.78)' : 'rgba(255,255,255,0.94)', look === 'light');
   ctx.fillStyle = look === 'dark' ? '#fff' : INK;

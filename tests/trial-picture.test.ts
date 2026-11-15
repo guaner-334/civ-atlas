@@ -12,6 +12,7 @@ import {
   legendOf,
   paintFilled,
   patchWindow,
+  pickChange,
   pickChronicle,
   pickVs,
   pointsWindow,
@@ -88,6 +89,15 @@ describe('一片一片的东西放大到哪', () => {
     expect(inRect(r, 30, 520, W)).toBe(true);
   });
 
+  it('左右对比用的正方形窗直接按正方形找:分开的两片也框得住一片', () => {
+    const s = spotsIn([592, 496, 608, 512], [992, 496, 1008, 512]);
+    const r = patchWindow(mesh, s, true)!;
+    expect(r.w).toBe(W * WIN_SHARE * 0.5);
+    expect(r.h).toBe(r.w);
+    expect(compareSquare(r, W, H)).toEqual(r);
+    expect(inRect(r, 600, 504, W) || inRect(r, 1000, 504, W)).toBe(true);
+  });
+
   it('一块有值的都没有 = null', () => {
     expect(patchWindow(mesh, { has: new Uint8Array(n), hot: new Uint8Array(n) })).toBeNull();
   });
@@ -110,6 +120,16 @@ describe('哪些地块算显眼', () => {
     const b = { elevation: new Float32Array([50, 250, 200, 300, -3000]), water: new Uint8Array([0, 0, 0, 1, 1]), precipitation: new Float32Array([1050, 1300, 250, 2300, 0]) };
     expect([...terrainSpots(a, b).hot]).toEqual([0, 1, 0, 1, 0]);
     expect([...climateSpots(a, b).hot]).toEqual([0, 1, 1, 0, 0]);
+  });
+
+  it('比哪样:地形真改了比地形图;清单写了改地形但地形没改、降水改了的比降水图;都没改 = null', () => {
+    const a = { elevation: new Float32Array([100, 200]), water: new Uint8Array([0, 0]), precipitation: new Float32Array([1000, 1000]) };
+    const terrain = { ...a, elevation: new Float32Array([400, 200]) };
+    const rain = { ...a, precipitation: new Float32Array([1000, 1500]) };
+    expect(pickChange(['height', 'climate'], a, terrain)?.view).toBe('terrain');
+    expect(pickChange(['height', 'climate'], a, rain)?.view).toBe('precipitation');
+    expect(pickChange(['height'], a, rain)).toBeNull();
+    expect(pickChange(['layers'], a, terrain)).toBeNull();
   });
 });
 

@@ -27,7 +27,6 @@ import {
   PIC_H,
   PIC_W,
   SUBTITLE_AREA,
-  climateSpots,
   compareSquare,
   firstFilled,
   fitArea,
@@ -37,10 +36,10 @@ import {
   legendOf,
   paintFilled,
   patchWindow,
+  pickChange,
   pickChronicle,
   pickVs,
   pointsWindow,
-  terrainSpots,
   vsText,
   yearText,
   type PicKind,
@@ -498,11 +497,10 @@ async function mapPictures(params: WorldParams, file: MapPluginFile, m: MapManif
       b.c.width = b.c.height = 0;
     }
   }
-  const stages = m?.stages ?? [];
-  const view: MapView | null = !official ? null : stages.includes('height') ? 'terrain' : stages.includes('climate') ? 'precipitation' : null;
-  const spots = official && view ? (view === 'terrain' ? terrainSpots(official, world) : climateSpots(official, world)) : null;
-  if (view && spots?.hot.some((v) => v)) {
-    const r = patchWindow(mesh, spots);
+  const change = official ? pickChange(m?.stages ?? [], official, world) : null;
+  if (change) {
+    const { view } = change;
+    const r = patchWindow(mesh, change.spots, true);
     const square = compareSquare(r, W, H);
     const halves: HTMLCanvasElement[] = [];
     try {

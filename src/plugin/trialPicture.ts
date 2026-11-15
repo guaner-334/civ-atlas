@@ -118,12 +118,28 @@ export function climateSpots(a: { precipitation: ArrayLike<number> }, b: typeof 
   return { has: hot, hot };
 }
 
+type MapCells = { elevation: ArrayLike<number>; water: ArrayLike<number>; precipitation: ArrayLike<number> };
+
+/** 地图插件不装 / 装上比哪样:清单里有改地形、地形真改了的比地形图;不然有改气候、降水真改了的比降水图;都没改 = null */
+export function pickChange(stages: readonly string[], official: MapCells, plugin: MapCells): { view: 'terrain' | 'precipitation'; spots: Spots } | null {
+  if (stages.includes('height')) {
+    const spots = terrainSpots(official, plugin);
+    if (count(spots.hot)) return { view: 'terrain', spots };
+  }
+  if (stages.includes('climate')) {
+    const spots = climateSpots(official, plugin);
+    if (count(spots.hot)) return { view: 'precipitation', spots };
+  }
+  return null;
+}
+
 /**
  * 一片一片的东西放大到哪:有值的地块超过全图 WHOLE_SHARE 画整张(null);不到就拿全图宽 WIN_SHARE、2:1 的窗在图上挪
  * (中心不进最北最南各 POLAR_SHARE),取窗里显眼的地块最多的位置;并列取这些地块最居中的,再并列取最左、最上的。
- * 一块显眼的都没有(数值都在色带下面)按有值的找;一块有值的都没有 = null
+ * 一块显眼的都没有(数值都在色带下面)按有值的找;一块有值的都没有 = null。
+ * square = 左右对比用的正方形窗(边长 = 2:1 窗的高),直接按正方形找,免得裁成正方形时把改了的地方裁掉
  */
-export function patchWindow(mesh: MeshLike, s: Spots): PicRect | null {
+export function patchWindow(mesh: MeshLike, s: Spots, square = false): PicRect | null {
   const { n, width: W, height: H, x, y } = mesh;
   const nHas = count(s.has);
   if (!nHas || nHas > n * WHOLE_SHARE) return null;
@@ -133,8 +149,8 @@ export function patchWindow(mesh: MeshLike, s: Spots): PicRect | null {
   const bw = W / BX;
   const BY = Math.max(1, Math.round(H / bw));
   const bh = H / BY;
-  const ww = W * WIN_SHARE;
-  const wh = ww / 2;
+  const wh = (W * WIN_SHARE) / 2;
+  const ww = square ? wh : W * WIN_SHARE;
   const cols = Math.round(ww / bw);
   const rows = Math.min(BY, Math.max(1, Math.round(wh / bh)));
   const cnt = new Float64Array(BX * BY);
