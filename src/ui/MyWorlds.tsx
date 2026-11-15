@@ -63,7 +63,7 @@ import { civName, groupIds, mapBrief, mapGroups, mapLine, mapName, type MapGroup
 import { mapEditOn } from './mapEditFlag';
 import { GENERATOR_VERSION } from '../gen/edits';
 import { loadGallery, useGallery, type GalleryWork } from '../account/gallery';
-import { GalleryFeatured } from './Gallery';
+import { GalleryFeatured, forgetGalleryFind } from './Gallery';
 import { rulesUiOn } from './rules/flag';
 import { RulesTabHost } from './rules/RulesHost';
 import { openRulesText } from './rules/sheetStore';
@@ -170,6 +170,8 @@ function worldLine(w: StoredWorld): string {
 
 export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv: newCiv, onEditMap, opening, onGallery, onOpenWork }: MyWorldsProps) {
   const v = useSavesVersion();
+  // 回到我的世界:下次进作品墙搜索框是空的
+  useEffect(forgetGalleryFind, []);
   const list = useMemo(() => listWorlds(), [v]);
   const groups = useMemo(() => mapGroups(list), [list]);
   const civs = useMemo(() => list.filter((w) => !w.map), [list]);

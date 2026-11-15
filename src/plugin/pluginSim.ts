@@ -6,7 +6,7 @@
  * 读插件文件时只有推演插件才 import() 它。
  */
 import { ANNAL_KINDS } from '../gen/civ/annals';
-import { PLUGIN_LIMITS } from '../gen/civ/engine/plugin';
+import { PLUGIN_LIMITS, columnProblem, type SimColumn } from '../gen/civ/engine/plugin';
 import { LAYER_LIMITS, LayerRun, type SimLayerSpec } from '../gen/civ/engine/pluginLayers';
 import { FREQUENCIES, cardProblems, colCount, type TableCard } from '../gen/civ/engine/tables/cards';
 import { OFFICIAL_NAMES, officialUnit, type OfficialName } from '../gen/civ/simOfficial';
@@ -27,6 +27,8 @@ export interface SimManifest {
   layers?: SimLayerSpec[];
   /** 交数给哪几个影响口 */
   influences?: string[];
+  /** 按城、按民族、按信仰记的数据栏 */
+  columns?: SimColumn[];
   /** 会下哪几种命令;下了这里没写的算写错 */
   commands?: string[];
   params?: Record<string, SimParam>;
@@ -47,6 +49,7 @@ export const SIM_SECTION_CAPS: readonly [keyof SimManifest, string][] = [
   ['tables', 'sim.tables'],
   ['inputs', 'sim.tables'],
   ['layers', 'sim.tables'],
+  ['columns', 'sim.tables'],
   ['influences', 'sim.influence'],
   ['commands', 'sim.commands'],
 ];
@@ -128,6 +131,16 @@ function checkLayers(raw: unknown, cards: ReadonlyMap<string, TableCard>): void 
   });
 }
 
+/** 数据栏:个数、名字(不和表重名)、按什么记、上下限 */
+function checkColumns(raw: unknown, cards: ReadonlyMap<string, TableCard>): void {
+  const taken = new Set(cards.keys());
+  list(raw, '清单的 sim.columns', PLUGIN_LIMITS.columns).forEach((c, i) => {
+    const bad = columnProblem(c, taken);
+    if (bad) fail(`清单的 sim.columns[${i}]:${bad}`);
+    taken.add((c as SimColumn).id);
+  });
+}
+
 const present = (s: Obj, k: string): boolean => (k === 'every' ? s.every !== undefined : Array.isArray(s[k]) ? (s[k] as unknown[]).length > 0 : isObj(s[k]) && Object.keys(s[k] as Obj).length > 0);
 const capName = (cap: string) => cap.split('@')[0];
 
@@ -155,6 +168,7 @@ export function checkSimManifest(m: { sim?: unknown; requires: readonly string[]
   }
   if (s.listen !== undefined) for (const k of names(s.listen, '清单的 sim.listen', PLUGIN_LIMITS.listen)) if (!has(ANNAL_KINDS, k)) unknown('史事种类', k);
   if (s.layers !== undefined) checkLayers(s.layers, cards);
+  if (s.columns !== undefined) checkColumns(s.columns, cards);
   if (s.influences !== undefined) for (const k of names(s.influences, '清单的 sim.influences', 64)) if (!has(SIM_INFLUENCE_TEXT, k)) unknown('影响口', k);
   if (s.commands !== undefined) for (const k of names(s.commands, '清单的 sim.commands', 32)) if (!has(SIM_COMMAND_TEXT, k)) unknown('命令', k);
   if (s.params !== undefined) checkParams(s.params, '清单的 sim.params');

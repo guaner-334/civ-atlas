@@ -69,6 +69,8 @@ export interface PluginTurn<V> {
   table(id: string): Float64Array;
   /** 自己交给影响口 id 的那栏此刻的值(复制的一份,格 × 栏;还没交 = 全是不影响的数) */
   influence(id: string): Float64Array;
+  /** 自己的数据栏此刻的值(复制的一份,一城、一族或一种信仰一格) */
+  column(id: string): Float64Array;
   /** 自己的随机数:[0, 1),按键直接算,和先后无关(键当整数用) */
   rand(a: number, b?: number, c?: number, d?: number): number;
 }
@@ -90,6 +92,8 @@ export interface PluginReply {
   tables?: Readonly<Record<string, ArrayLike<number>>>;
   /** 换掉交给影响口的几栏(口名 → 格 × 栏,个数要对;压回口的上下限) */
   influences?: Readonly<Record<string, ArrayLike<number>>>;
+  /** 换掉自己几栏数据(个数要对;压回上下限) */
+  columns?: Readonly<Record<string, ArrayLike<number>>>;
   /** 下命令(SimCommand 的写法):此刻的下一格生效 */
   commands?: readonly unknown[];
   /** 写进编年史的几句(记在此刻) */

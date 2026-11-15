@@ -14,7 +14,7 @@ import { toWire, type Wire } from './wire';
 export type { QuickJSLimits } from './box';
 
 /** 清单 sim 段给的设定(和 SimPlugin 一一对上) */
-export type SimSetup = Pick<SimPlugin, 'every' | 'tables' | 'inputs' | 'listen' | 'layers' | 'influences'>;
+export type SimSetup = Pick<SimPlugin, 'every' | 'tables' | 'inputs' | 'listen' | 'layers' | 'influences' | 'columns'>;
 
 export interface QuickJSPluginSpec {
   id: string;
@@ -30,7 +30,7 @@ export interface QuickJSPluginSpec {
   log?: (method: string, text: string, year: number | null) => void;
 }
 
-export const QUICKJS_LIMITS: QuickJSLimits = { memory: 64 * 1024 * 1024, moment: PLUGIN_TIME.moment, stack: 64 * 1024 };
+export const QUICKJS_LIMITS: QuickJSLimits = { memory: 64 * 1024 * 1024, moment: PLUGIN_TIME.moment, stack: 256 * 1024 };
 
 export interface QuickJSPlugin extends SimPlugin<SimRead> {
   /** 放掉 QuickJS(用完一段推演就放) */

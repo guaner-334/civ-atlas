@@ -299,8 +299,8 @@ describe('推演插件下命令:写错了', () => {
       expect((err as Error).message).toMatch(msg);
       expect(() => run.advance(650)).toThrow(/不能接着推/);
     }
-    const many = Array.from({ length: 65 }, () => ({ kind: 'declare', a: 0, b: 1 }));
-    expect(() => generateCiv(w, { endYear: 600, plugins: [once('many', many)] })).toThrow(/最多下 64 条/);
+    const many = Array.from({ length: 257 }, () => ({ kind: 'declare', a: 0, b: 1 }));
+    expect(() => generateCiv(w, { endYear: 600, plugins: [once('many', many)] })).toThrow(/最多下 256 条/);
     expect(() => generateCiv(w, { endYear: 600, plugins: [once('notlist', { kind: 'declare' })] })).toThrow(/commands 要是一个数组/);
   }, 60_000);
 
