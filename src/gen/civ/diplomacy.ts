@@ -48,7 +48,7 @@ import { YEAR_TICKS, resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './engine/rand';
 import { bookChain, quantize, type CivSim } from './engine/sim';
-import { mulOf } from './influence';
+import { mulOf, oddsTimes } from './influence';
 import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { POLICY_KNOBS } from './policy';
 import { MARRIAGES_KNOBS } from './marriages';
@@ -426,7 +426,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     if (!borders(v, L) && !borders(L, v)) odds *= DEFECT_FAR;
     if (pm.polities[v].culture !== pm.polities[L].culture) odds *= DEFECT_FOREIGN;
     const oddsIn = sim.influence?.get('defect.odds');
-    if (oddsIn) odds *= mulOf(oddsIn, v);
+    if (oddsIn) odds = oddsTimes(odds, oddsIn, v);
     if (keyed(dm.base, pm.ptag[v], k, U_DEFECT) >= odds / (1 + odds)) return false;
     record('defect', { a: v, b: L, region: capRegion(v, t), settlement: capitalAt(pm.polities[v], t) });
     // 宗主发兵讨伐:接壤、没在和它打、没被下令和它结盟、手上的仗没打满、没被下令不许扩张
@@ -498,7 +498,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     for (const z of dm.alliesOf(p)) if (powerOf(z, t) >= 0.5 * pq) return false;
     const odds0 = SUBMIT_ODDS * fpow(ratio / SUBMIT_RATIO, SUBMIT_EXP) * pm.polities[q].expansionism;
     const oddsIn = sim.influence?.get('submit.odds');
-    const odds = oddsIn ? odds0 * mulOf(oddsIn, p) : odds0;
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, p) : odds0;
     if (keyed(dm.base, pm.ptag[p], k, U_SUBMIT) >= odds / (1 + odds)) return false;
     swear(p, q, t);
     return true;
@@ -532,7 +532,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     if (best < 0) return false;
     const odds0 = PACT_ODDS * Math.sqrt(Math.max(ratio, 1) / THREAT) * (cowar ? PACT_COWAR : 1);
     const oddsIn = sim.influence?.get('alliance.odds');
-    const odds = oddsIn ? odds0 * mulOf(oddsIn, p) : odds0;
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, p) : odds0;
     if (keyed4(dm.base, pm.ptag[p], pm.ptag[best], k, U_PACT) >= odds / (1 + odds)) return false;
     const sid = capitalAt(pm.polities[p], t);
     record('alliance', { a: p, b: best, region: pm.settlements[sid].region, settlement: sid, foe: f });

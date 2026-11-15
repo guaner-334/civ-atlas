@@ -65,7 +65,7 @@ import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
-import { mulOf } from './influence';
+import { mulOf, oddsTimes } from './influence';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -581,7 +581,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     if (A < 0 || atWar(A)) return false;
     const odds0 = MERGE_ODDS * Math.sqrt(pm.size[A] / (MERGE_RATIO * nB));
     const oddsIn = sim.influence?.get('merge.odds');
-    const odds = oddsIn ? odds0 * mulOf(oddsIn, bid) : odds0;
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, bid) : odds0;
     if (keyed(pol.base, pm.ptag[bid], k, U_MERGE) >= odds / (1 + odds)) return false;
     // 藩属并入自己的宗主:和邦交里的纳土归附一样记 cause = vassal(编年史写"纳土归附")
     const vassal = wm.dm?.liegeOf(bid) === A;
@@ -741,7 +741,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     }
     if (c < 0) return false;
     const oddsIn = sim.influence?.get('restore.odds');
-    if (oddsIn) bestOdds *= mulOf(oddsIn, fid);
+    if (oddsIn) bestOdds = oddsTimes(bestOdds, oddsIn, fid);
     if (keyed(pol.base, pm.ptag[fid], k, U_RESTORE) >= bestOdds / (1 + bestOdds)) return false;
     const o = owner[c];
     // 以故都为中心,连同周围的同族州(由近及远,只走陆路)

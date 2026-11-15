@@ -192,8 +192,8 @@ function hook(sim: CivSim, mm: MarriageModel): void {
       const odds = oddsIn ? odds0 * mulOf(oddsIn, p) : odds0;
       if (keyed4(mm.base, tag, k, U_MARRY, 0) >= odds) return;
       note(p, q, g, t);
-      // 互嫁:对方的太子(没有就照样挑)娶这边的宗室女
-      if (keyed4(mm.base, tag, k, U_MUTUAL, 0) < MUTUAL && brideOk(p, t)) {
+      // 互嫁:对方的太子(没有就照样挑)娶这边的宗室女(插件交给 marry.odds 的按娶亲的那一国乘)
+      if (keyed4(mm.base, tag, k, U_MUTUAL, 0) < (oddsIn ? MUTUAL * mulOf(oddsIn, q) : MUTUAL) && brideOk(p, t)) {
         const h = groomOf(q, t);
         if (h) note(q, p, h, t);
       }

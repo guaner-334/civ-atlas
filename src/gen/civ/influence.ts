@@ -61,3 +61,9 @@ export const OFFICIAL_INFLUENCES: readonly InfluencePoint[] = [
 
 /** 按国的口里一国的数:后立的国(超出插件交的格数)按不影响算 */
 export const mulOf = (col: Float64Array, p: number): number => (p < col.length ? col[p] : 1);
+
+/** 赔率乘上口里第 i 格的数;交 0 就是 0(官方算出来的赔率是 Infinity 时乘 0 得 NaN,掷的那一下比不出大小,反倒成了) */
+export const oddsTimes = (odds: number, col: Float64Array, i: number): number => {
+  const m = mulOf(col, i);
+  return m === 0 ? 0 : odds * m;
+};

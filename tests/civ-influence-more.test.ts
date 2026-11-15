@@ -8,7 +8,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, startCiv, startContinue, type Civ, type CivParams } from '../src/gen/civ';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { influencesFor } from '../src/gen/civ/engine/influence';
-import { OFFICIAL_INFLUENCES } from '../src/gen/civ/influence';
+import { OFFICIAL_INFLUENCES, oddsTimes } from '../src/gen/civ/influence';
 import { resumeCiv } from '../src/gen/civ/modules';
 import { simRead } from '../src/gen/civ/simRead';
 import { effOf, polityModelOf } from '../src/gen/civ/polities';
@@ -16,7 +16,7 @@ import { goalOf, lengthOf, warModelOf } from '../src/gen/civ/wars';
 import type { Annal } from '../src/gen/civ/types';
 import { mulberry32, subSeed } from '../src/gen/util';
 import { civDiff } from '../scripts/lib/resumeFuzz';
-import { POLITY_MORE, steady, swayMore } from './lib/influencePlugins';
+import { POLITY_MORE, parity, steady, swayMore } from './lib/influencePlugins';
 
 const PARAMS = { ...DEFAULT_PARAMS, cells: 12000 };
 const worlds = new Map<number, World>();
@@ -115,6 +115,25 @@ describe('第二批按国的影响口:往对的方向推(推 3000 年)', () => {
       expect(restores(generateCiv(w, { plugins: [steady('p', { 'restore.odds': 0 }, 5)] })), `seed ${seed} 复国 ×0`).toBeLessThan(restores(base));
     }
   }, 120_000);
+
+  it('结亲按娶亲的那一国:双号国 ×0、单号国 ×4,看邦交时娶亲的(连互嫁的那一头)都是单号国', () => {
+    for (const seed of [7, 2024]) {
+      const w = worldOf(seed);
+      const grooms = (c: Civ) => c.annals.filter((e) => e.kind === 'marry' && e.war < 0).map((e) => e.a);
+      expect(grooms(generateCiv(w)).some((a) => a % 2 === 0), `seed ${seed} 官方有双号国娶亲`).toBe(true);
+      const odd = grooms(generateCiv(w, { plugins: [parity('p', 'marry.odds', 0, 4, 5)] }));
+      expect(odd.length).toBeGreaterThan(0);
+      expect(odd.filter((a) => a % 2 === 0), `seed ${seed}`).toEqual([]);
+    }
+  }, 120_000);
+
+  it('赔率交 0 就是 0:官方算出来是 Infinity 也一样(不得 NaN)', () => {
+    const col = Float64Array.of(0, 2);
+    expect(oddsTimes(Infinity, col, 0)).toBe(0);
+    expect(oddsTimes(0.3, col, 0)).toBe(0);
+    expect(oddsTimes(0.3, col, 1)).toBe(0.6);
+    expect(oddsTimes(0.3, col, 5)).toBe(0.3);
+  });
 
   it('一场仗打多久 ×¼ 短得多、×4 长;想拿几州换了以后历史跟着变', () => {
     for (const seed of [7, 2024]) {

@@ -74,7 +74,7 @@ import type { UnrestRuleConsts } from './stateTables';
 import { claimants, murderedAt } from './royals';
 import { anySlump, inSlump, pandemicModelOf } from './pandemicState';
 import { royalSeg } from './regime';
-import { mulOf } from './influence';
+import { oddsTimes } from './influence';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
@@ -367,7 +367,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World, calamity: Calamity | u
     const u = api.politics.unrest?.(P, t) ?? 0;
     const odds0 = CLAIM_ODDS * (1 + CLAIM_MORE * (sons.length - 1)) * fexp(CLAIM_K * (u - CLAIM_U0));
     const oddsIn = sim.influence?.get('claim.odds');
-    const odds = oddsIn ? odds0 * mulOf(oddsIn, pid) : odds0;
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, pid) : odds0;
     const tag = pm.ptag[pid];
     if (keyed(um.base, tag, k, U_CLAIM) >= odds / (1 + odds)) return;
     // 起事的州:离国都远、有城、不是国都、不是永久划给它的州(加一点随机)
@@ -494,7 +494,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World, calamity: Calamity | u
     const u = api.politics.unrest!(P, t) + (api.politics.famineBump?.(P, list.length) ?? 0);
     const odds0 = REVOLT_ODDS * fexp(REVOLT_K * (u - REVOLT_U0)) * Math.min(1, list.length / 3);
     const oddsIn = sim.influence?.get('revolt.odds');
-    const odds = oddsIn ? odds0 * mulOf(oddsIn, pid) : odds0;
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, pid) : odds0;
     if (keyed(um.base, pm.ptag[pid], k, U_REVOLT) >= odds / (1 + odds)) return false;
     const capR = pm.settlements[capitalAt(P, t)].region;
     // 起事的州:灾最重的、不是国都、有城、不是永久划给它的州(阶段 4 干预)
@@ -582,7 +582,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World, calamity: Calamity | u
     const u = api.politics.unrest!(P, t) + HEG_W * Math.min(1, Math.max(0, (share - HEG_0) / HEG_SPAN));
     const odds0 = COLLAPSE_ODDS * fexp(COLLAPSE_K * (u - COLLAPSE_U0));
     const oddsIn = sim.influence?.get('collapse.odds');
-    const odds = oddsIn ? odds0 * mulOf(oddsIn, pid) : odds0;
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, pid) : odds0;
     if (keyed(um.base, pm.ptag[pid], k, U_COLLAPSE) >= odds / (1 + odds)) return false;
     return collapse(P, k, t);
   };
