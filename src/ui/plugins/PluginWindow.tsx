@@ -380,14 +380,14 @@ function Perm({ line }: { line: PermissionLine }) {
       <span>
         {line.loud ? <b>{line.text}</b> : line.text}
         {line.note && <small>{line.note}</small>}
-        {line.why.length > 0 && <small>作者说：{line.why.join('；')}</small>}
+        {line.why.length > 0 && <small>{line.why.join('；')}</small>}
       </span>
     </div>
   );
 }
 
-/** code = 插件代码(装的时候有;地图插件调的实验帮手要看它) */
-export function Perms({ m, code }: { m: PermissionSource; code?: string }) {
+/** code = 插件代码(装的时候有;地图插件调的实验帮手要看它);safe = false 不画底下安全那句(作品墙详情窗把它放在图下面) */
+export function Perms({ m, code, safe = true }: { m: PermissionSource; code?: string; safe?: boolean }) {
   const lines = permissionLines(m, code);
   return (
     <>
@@ -398,10 +398,12 @@ export function Perms({ m, code }: { m: PermissionSource; code?: string }) {
           ))}
         </div>
       )}
-      <div className="plg-safe">
-        <Icon name="lock" size={16} />
-        <span>{permissionFooter(lines, m.role)}</span>
-      </div>
+      {safe && (
+        <div className="plg-safe">
+          <Icon name="lock" size={16} />
+          <span>{permissionFooter(lines, m.role)}</span>
+        </div>
+      )}
     </>
   );
 }
