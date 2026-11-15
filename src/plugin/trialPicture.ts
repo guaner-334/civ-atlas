@@ -203,6 +203,16 @@ export function patchWindow(mesh: MeshLike, s: Spots, square = false): PicRect |
   return { x: best.i * bw, y: best.j * bh, w: ww, h: wh };
 }
 
+/** 图层放大到哪:按州、按年份的图层(工具插件交的 kind = regions,或存下的 unit = region,都带 years)画整张 */
+export function layerWindow(
+  mesh: MeshLike,
+  layer: { kind?: 'cells' | 'regions'; unit?: 'cell' | 'region'; years?: readonly number[]; title?: string },
+  paint: CellPaint,
+): PicRect | null {
+  if ((layer.kind === 'regions' || layer.unit === 'region') && (layer.years?.length ?? 0) > 0) return null;
+  return patchWindow(mesh, layerSpots(paint));
+}
+
 /**
  * 要看的一片(世界坐标)落在画面的 area 里:撑成 2:1、不小于全图宽 WIN_SHARE,这样宽过全图 ZOOM_MAX_SHARE 画整张;
  * 再把画面往外撑到这一片落进 area(有面板时画面可以宽过一半,最多一整圈)。上下不出图,东西照接缝接上。

@@ -9,6 +9,7 @@ import {
   inRect,
   lastFilled,
   layerSpots,
+  layerWindow,
   legendOf,
   paintFilled,
   patchWindow,
@@ -100,6 +101,22 @@ describe('一片一片的东西放大到哪', () => {
 
   it('一块有值的都没有 = null', () => {
     expect(patchWindow(mesh, { has: new Uint8Array(n), hot: new Uint8Array(n) })).toBeNull();
+  });
+
+  it('按州、按年份的图层占 18% 也画整张;按地块的图层占 18% 照旧放大', () => {
+    const s = spotsIn([512, 256, 1248, 768]);
+    expect(Math.round((s.has.reduce((a, b) => a + b, 0) / n) * 100)).toBe(18);
+    const values = new Float32Array(n).fill(NaN);
+    for (let i = 0; i < n; i++) if (s.has[i]) values[i] = (i % 6) + 1;
+    const paint = { values, ramp: { colors: ['#c7e9b4', '#0c2c84'], min: 0, max: 6 } };
+    expect(layerWindow(mesh, { kind: 'regions', years: [0, 50, 3000] }, paint)).toBeNull();
+    expect(layerWindow(mesh, { unit: 'region', years: [0, 50, 3000] }, paint)).toBeNull();
+    const r = layerWindow(mesh, { kind: 'cells' }, paint)!;
+    expect(r.w).toBe(W * WIN_SHARE);
+    expect(r.h).toBe(r.w / 2);
+    expect(layerWindow(mesh, { unit: 'cell' }, paint)).toEqual(r);
+    expect(layerWindow(mesh, { unit: 'cell', years: [0, 50] }, paint)).toEqual(r);
+    expect(layerWindow(mesh, { title: '潮差' }, paint)).toEqual(r);
   });
 });
 

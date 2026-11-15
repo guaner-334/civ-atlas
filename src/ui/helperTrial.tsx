@@ -32,7 +32,7 @@ import {
   fitArea,
   inRect,
   lastFilled,
-  layerSpots,
+  layerWindow,
   legendOf,
   paintFilled,
   patchWindow,
@@ -267,7 +267,7 @@ async function simPictures(seed: number, civ: Civ, official: Civ | null, sim: Si
     });
     if (layer) {
       const paint = simLayerPaint(civ, end, layer)!;
-      const r = patchWindow(mesh, layerSpots(paint));
+      const r = layerWindow(mesh, layer, paint);
       const b = await big(civ, end, paint);
       const legend = legendOf(layer, paint, (c) => inRect(r, mesh.x[c], mesh.y[c], W));
       return picsOf((kind) => drawPicture(kind, { base: { big: b, r }, ...(kind === 'map' ? { legend } : {}) }));
@@ -488,7 +488,7 @@ async function mapPictures(params: WorldParams, file: MapPluginFile, m: MapManif
   });
   if (layer) {
     const paint = mapPaint(world, file.id, layer)!;
-    const r = patchWindow(mesh, layerSpots(paint));
+    const r = layerWindow(mesh, layer, paint);
     const b = r ? await mapBig(params, file, 'terrain', paint, 2).catch(() => bigOf(world, viewCanvas(g, 'terrain', paint))) : bigOf(world, viewCanvas(g, 'terrain', paint));
     try {
       const legend = legendOf(layer, paint, (c) => inRect(r, mesh.x[c], mesh.y[c], W));
@@ -622,12 +622,11 @@ async function toolPictures(g: Generated, params: WorldParams, year: number, rec
   if (box) for (let k = 0; k <= 8; k++) pts.push([wx(box.x0 + ((box.x1 - box.x0) * k) / 8), box.y0], [wx(box.x0 + ((box.x1 - box.x0) * k) / 8), box.y1]);
   const towns = panel ? cities.map((c) => ({ x: mesh.x[c.cell], y: mesh.y[c.cell], name: c.name })) : [];
   for (const t of towns) pts.push([t.x, t.y]);
-  const spots = paint ? layerSpots(paint) : null;
+  const layerRect = !pts.length && layer && paint ? layerWindow(mesh, layer, paint) : null;
   const zoomOf = (kind: PicKind): PicRect | null => {
     const area = panel ? PANEL_AREA[kind] : FULL_AREA;
     if (pts.length) return pointsWindow(pts, W, H, area);
-    const r = spots && patchWindow(mesh, spots);
-    return r && fitArea(r, W, H, area);
+    return layerRect && fitArea(layerRect, W, H, area);
   };
   const zoom: Record<PicKind, PicRect | null> = { map: zoomOf('map'), card: zoomOf('card') };
   const big = await politicalBig(g, params, year, paint, [zoom.map, zoom.card].some((r) => r && r.w < W));
