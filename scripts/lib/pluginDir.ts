@@ -8,6 +8,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { experimentalUses, type ExperimentalUse } from '../../src/plugin/experimental';
 import { packPluginFile, PLUGIN_FILES, type PluginPackInput } from '../../src/plugin/pluginFile';
 import { openPluginFileFully } from '../../src/plugin/pluginSimTables';
 
@@ -16,7 +17,7 @@ export const PLUGIN_DIR_KEYS: readonly string[] = ['id', 'name', 'version', 'rol
 const FILLED = ['app', 'kind', 'format', 'entry', 'files'];
 
 /** patch = 打包前改清单里的几项(开发用的假服务器拿示例插件打别的版本) */
-export async function packPluginDir(dir: string, patch: Record<string, unknown> = {}): Promise<{ id: string; bytes: Uint8Array }> {
+export async function packPluginDir(dir: string, patch: Record<string, unknown> = {}): Promise<{ id: string; bytes: Uint8Array; experimental: ExperimentalUse[] }> {
   let manifest: Record<string, unknown>;
   try {
     manifest = JSON.parse(readFileSync(join(dir, PLUGIN_DIR_MANIFEST), 'utf8'));
@@ -35,6 +36,12 @@ export async function packPluginDir(dir: string, patch: Record<string, unknown> 
   manifest = { ...manifest, ...patch };
   const bytes = await packPluginFile({ manifest: manifest as unknown as PluginPackInput['manifest'], files });
   // 网页主线程读文件时不查表的公式,打包时查全
-  await openPluginFileFully(bytes);
-  return { id: String(manifest.id), bytes };
+  const p = await openPluginFileFully(bytes);
+  return { id: String(manifest.id), bytes, experimental: experimentalUses(p.manifest, p.code) };
+}
+
+/** 打包时打印的那一行;没用实验接口 = null */
+export function experimentalNote(uses: readonly ExperimentalUse[]): string | null {
+  if (!uses.length) return null;
+  return `用了实验接口(网站更新后可能失效):${uses.map((u) => `${u.what} ${u.what === '帮手' ? `d.${u.name}` : u.name}`).join('、')}`;
 }
