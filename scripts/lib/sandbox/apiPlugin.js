@@ -98,6 +98,13 @@
       await civAtlas.store.world.get(),
     ];
 
+    const opened = await civAtlas.file.open({ accept: ['csv'], max: 1000 });
+    out.file = {
+      save: (await civAtlas.file.save({ name: '../排行.csv', content: '国,州' })).name,
+      png: (await civAtlas.file.save({ name: '地图.png', content: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]) })).name,
+      open: [opened.name, opened.size, opened.bytes instanceof Uint8Array, new TextDecoder().decode(opened.bytes)],
+    };
+
     out.panel = await codeOf(
       civAtlas.panel.set({
         nodes: [
@@ -129,6 +136,10 @@
       applyKind: await codeOf(civAtlas.author.apply({ changes: [{ kind: 'terrain', op: {} }] })),
       storeBig: await codeOf(civAtlas.store.local.set({ schema: 1, value: 'x'.repeat(70000) })),
       storeKind: await codeOf(civAtlas.store.world.set({ schema: 1, value: new Date() })),
+      fileHtml: await codeOf(civAtlas.file.save({ name: 'a.html', content: '<script>' })),
+      fileSvg: await codeOf(civAtlas.file.save({ name: 'a.svg', content: '<svg/>' })),
+      fileBig: await codeOf(civAtlas.file.save({ name: 'a.json', content: new Uint8Array(2 * 1024 * 1024 + 1) })),
+      openAccept: await codeOf(civAtlas.file.open({ accept: ['*.csv'] })),
       uncloneable: await codeOf(civAtlas.world.info({ f: () => 1 })),
       stillUp: (await civAtlas.host.info()).api,
     };

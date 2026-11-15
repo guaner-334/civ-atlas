@@ -14,13 +14,16 @@ export type CapRef =
   | 'author.read@1'
   | 'author.write@1'
   | 'view.read@1'
+  | 'view.control@1'
   | 'input.pick@1'
   | 'ui.panel@1'
   | 'layer.cells@1'
   | 'layer.regions@1'
   | 'layer.marks@1'
   | 'store.local@1'
-  | 'store.world@1';
+  | 'store.world@1'
+  | 'file.save@1'
+  | 'file.open@1';
 
 /**
  * 出错时 Error 上的 code:
@@ -81,8 +84,31 @@ export interface CellArrays {
   flux: Float32Array;
   /** 海冰 0–1 */
   seaIce: Float32Array;
+  /** 属于第几块板块(world.plates() 的 id) */
+  plate: Int16Array;
+  /** 洋流的表层流向 × 强弱(0–1):往东、往南(地图上往下)是正的;陆地、湖为 0 */
+  currentX: Float32Array;
+  currentY: Float32Array;
+  /** 洋流让水温高了几度(°C,寒流是负的);陆地、湖为 0 */
+  currentTemp: Float32Array;
 }
 export type CellField = keyof CellArrays;
+
+/** 一块板块;id 是 world.cells 的 plate 里的数 */
+export interface PlateInfo {
+  id: number;
+  /** 大陆板块 = true,大洋板块 = false */
+  continental: boolean;
+  /** 有几个地块 */
+  cells: number;
+  /** 重心(世界坐标) */
+  x: number;
+  y: number;
+  /** 重心处往哪边漂:度,0 北、90 东 */
+  dir: number;
+  /** 每年漂几厘米 */
+  speed: number;
+}
 
 /** 相邻表:地块 i 的邻居是 list[start[i] .. start[i + 1]) */
 export interface Neighbors {
@@ -224,7 +250,185 @@ export interface PersonInfo {
   until?: number;
   title?: string;
   female?: true;
+  /** 父亲(人物编号;女的父辈也记在这里):君主、宗室按世系,将门、世家的将领、名臣是本国先前的一位;一朝的第一位、别的人没有 */
+  parent?: number;
+  /** parent 是养父 */
+  adopted?: true;
+  /** 母亲(人物编号):联姻嫁来的宗室女所生、临朝的太后所辅的幼主才有 */
+  mom?: number;
+  /** 后妃的丈夫(人物编号) */
+  husband?: number;
+  /** 联姻娶的宗室女(按先后):她出自哪国、她的父亲(人物编号,没有 = −1)、结亲那年、她本人(人物编号,没有 = 不给) */
+  spouses?: { polity: number; father: number; year: number; person?: number }[];
+  /** 君主、名臣:第几朝(history.dynasties() 的 index;没改朝换代过 = 0) */
+  dynasty?: number;
+  /** 复国之君出自故国哪位君主(人物编号)、是他的第几代孙(1 子、2 孙……) */
+  descent?: { from: number; gen: number };
 }
+
+/**
+ * 一朝(只有改朝换代过的国家才有;没改过的国家只有一朝,不列)。
+ * name:东方 = 这一朝的国名词根("景");西幻 = "卡诺王朝";改制开的共和、军政府那一段 = 空串
+ */
+export interface DynastyInfo {
+  /** 哪国 */
+  polity: number;
+  /** 第几朝,0 = 立国时那一朝 */
+  index: number;
+  key: string;
+  name: string;
+  from: number;
+  /** 下一朝开始或亡国的年份;到最后一年还在 = 不给 */
+  until?: number;
+  /** 这一朝兴起的城(城的编号) */
+  seat: number;
+  /** 改制开的一段:republic 共和、junta 军政府;王室的那几段不给 */
+  regime?: 'republic' | 'junta';
+}
+
+/**
+ * 一份约(互不侵犯、有限竞争):pact 两国互不侵犯,limited 三国以上有限竞争;
+ * how:self 几国自己立的、peace 议和时顺带立的、decree 用的人下令立的
+ */
+export interface TreatyInfo {
+  id: number;
+  key: string;
+  /** 约名:改过的名字;没改过 = 会盟的城起的("丹枫关之约"),没有城 = "甲与乙之约" */
+  name: string;
+  kind: 'pact' | 'limited';
+  how: 'self' | 'peace' | 'decree';
+  /** 立约的几国(按入约先后) */
+  parties: number[];
+  start: number;
+  /** 头一个期限(年);0 = 一直有效 */
+  term: number;
+  /** 眼下这一期到哪年(续过约的按最后一次续约算);一直有效 = 不给 */
+  until?: number;
+  /** 约废的年份、怎么废的(expire 约满不续、lapse 剩不到两国);还在 = 不给 */
+  ended?: number;
+  end?: 'expire' | 'lapse';
+  /** 用的人下令立的、选了约期内不许背约 */
+  keep?: true;
+  /** 会盟的城、所在州(没有 = −1) */
+  settlement: number;
+  region: number;
+  /** 居间的国家、共同的强邻(没有 = −1) */
+  by: number;
+  foe: number;
+  renewals: { year: number; parties: number[]; term: number }[];
+  /** 背约:哪年、谁背约打谁 */
+  breaches: { year: number; by: number; against: number }[];
+  /** 依这份约设的中立地(history.zones() 的 id;没有 = −1) */
+  zone: number;
+  /** 给了年份才有:那一年还在约里的几国(背约、亡国、向别国称过臣的不算) */
+  members?: number[];
+}
+
+/** 一处中立地:how = treaty 几国立约时共建、peace 两国议和时划的缓冲 */
+export interface ZoneInfo {
+  id: number;
+  region: number;
+  /** 州里的城(没有 = −1) */
+  settlement: number;
+  /** 依的那份约(没有 = −1) */
+  treaty: number;
+  how: 'treaty' | 'peace';
+  /** 共建的几国 */
+  founders: number[];
+  /** 让出那州的国家(−1 = 原是无主之地) */
+  owner: number;
+  from: number;
+  /** 撤销的年份、还给了谁(−1 = 没还,成了无主之地);还在 = 不给 */
+  ended?: number;
+  back?: number;
+  /** 放逐、出奔到这里的人物(人物编号,按先后) */
+  residents: number[];
+}
+
+/** 某一年的盟约和宗藩;亡了的国家不算 */
+export interface RelationsInfo {
+  /** 结着的盟:两国、结盟的年份、共御的强邻(−1 = 没有);decree = 用的人下令结的 */
+  alliances: { a: number; b: number; since: number; foe: number; decree?: true }[];
+  /** 藩属:哪国、宗主、称臣的年份 */
+  vassals: { polity: number; liege: number; since: number }[];
+}
+
+/** 物产(和推演插件官方表 res.* 的后半一样):粮、牲畜、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银 */
+export type ResourceName = 'grain' | 'livestock' | 'copper' | 'iron' | 'coal' | 'timber' | 'salt' | 'fish' | 'oil' | 'rare' | 'gold';
+
+/** 一条商道:要紧的货从产地州运到买方国都 */
+export interface TradeInfo {
+  id: number;
+  key: string;
+  name: string;
+  /** 买方国家 */
+  buyer: number;
+  /** 产地州 */
+  from: number;
+  /** 运过的货:从哪年运到哪年(还在运 = until 不给);按开始运的先后 */
+  goods: { resource: ResourceName; from: number; until?: number }[];
+  /**
+   * 通断(按年份):open 通、break 断(foe = 和哪国交兵)、reopen 复通、end 废
+   * (why:fall 买方亡了、gain 本国采得到了、need 用不着了、gone 产地不产了或另找了产地、fade 商旅渐稀)
+   */
+  events: { year: number; kind: 'open' | 'break' | 'reopen' | 'end'; foe?: number; why?: 'fall' | 'gain' | 'need' | 'gone' | 'fade' }[];
+  /** 路线:从哪年起经过哪些州(产地 → 买方国都所在州);路线变了另起一段 */
+  paths: { year: number; regions: number[] }[];
+}
+
+/**
+ * 一次大迁徙:一个民族分出一支举族远走,到了落脚地立国、开战。
+ * push 为什么走(crowd 老家挤、famine 灾年、scatter 本族的国刚散了、亡了);pull 冲着什么去(chaos 那边大乱、plague 疫后空了、rich 富庶、tribal 部落地带);
+ * outcome:found 立了国、conquer 入主、rout 败散
+ */
+export interface MigrationInfo {
+  id: number;
+  /** 迁徙的民族 */
+  culture: number;
+  /** 动身那年 */
+  year: number;
+  /** 依次走过的州:第一个是出发的州,最后一个是落脚的州 */
+  route: number[];
+  /** 到 route 里每一州的年份(和 route 一样长) */
+  years: number[];
+  /** 一路往哪边走 */
+  dir: 'east' | 'south' | 'west' | 'north';
+  /** 到了能占几州 */
+  size: number;
+  push: 'crowd' | 'famine' | 'scatter';
+  pull: 'chaos' | 'plague' | 'rich' | 'tribal';
+  /** 动身时冲着哪国去(−1 = 部落地带) */
+  target: number;
+  /** 落脚那年;还在路上 = 不给 */
+  settled?: number;
+  outcome?: 'found' | 'conquer' | 'rout';
+  outcomeYear?: number;
+  /** 立的国(没立成 = 不给) */
+  polity?: number;
+}
+
+/**
+ * history.regionStats 能取的:每州一个数。
+ * population 人口(千人);control 中央管得到几成(0–1,割据 = 0,不在国家里 = NaN);era 时代(整数部分是第几个时代:0 石器、1 青铜、2 铁器、3 中古、4 火药、5 工业、6 电气、7 信息、8 未来,小数是走到了几成);
+ * dev.* 五种能力(和时代同一把尺子);res.* 物产眼下能用多少(0–3 档,没发现 = 0);ideology.* 各说的接受度(0–1):天命、律法、共治、技艺、民权、国族、均产
+ */
+export type RegionStat =
+  | 'population'
+  | 'control'
+  | 'era'
+  | 'dev.production'
+  | 'dev.transport'
+  | 'dev.information'
+  | 'dev.administration'
+  | 'dev.mobilization'
+  | `res.${ResourceName}`
+  | 'ideology.mandate'
+  | 'ideology.law'
+  | 'ideology.council'
+  | 'ideology.craft'
+  | 'ideology.rights'
+  | 'ideology.nation'
+  | 'ideology.commons';
 
 export interface EventInfo {
   id: number;
@@ -279,6 +483,32 @@ export interface AuthorNoteInfo {
   title: string;
   text: string;
   createdAt: string;
+}
+
+/**
+ * 一处地形修改(格式同世界文件,每种的意思见 src/gen/edits.ts 开头「地形修改」那一节的表):
+ * pts 是世界坐标的一个点 [x, y] 或折线 [x0, y0, x1, y1, …];r 大小(世界坐标);s 强度(1 = 普通)
+ */
+export interface TerrainOpInfo {
+  kind: 'volcano' | 'range' | 'lake' | 'raise' | 'sink' | 'river' | 'wet' | 'dry' | 'warm' | 'cold' | 'lift' | 'lower' | 'smooth' | 'flatten' | 'setHeight' | 'delWater';
+  pts: number[];
+  r: number;
+  s: number;
+  /** 湖岸曲折程度 0–1 */
+  e?: number;
+  /** 1 = 圈起来填满(气候四种) */
+  f?: 1;
+  /** 定高的海拔(米) */
+  h?: number;
+  /** 定高的边缘:0 硬 / 1 适中 / 2 软 */
+  edge?: 0 | 1 | 2;
+}
+
+/** 用的人改的地形:地形修改(从第 0 年起就那样)、地形大事(那一年发生)、新建世界时涂的草图(格式同世界文件;没画 = 不给) */
+export interface AuthorTerrainInfo {
+  terrain: TerrainOpInfo[];
+  upheavals: { year: number; ops: TerrainOpInfo[] }[];
+  sketch?: unknown;
 }
 
 /** 君主、掌权的人的倾向:开拓、好战、发展、重商,各 0–100 的整数 */
@@ -419,6 +649,34 @@ export interface ViewInfo {
 }
 
 // ---------------------------------------------------------------------------
+// 替你翻年份、移地图、圈出(view.control)
+
+/** 国、州、城:编号,或 history.* 给的稳定键 */
+export type ViewRef = number | string;
+
+/** 飞过去看全给的这些(给几样都行) */
+export interface ViewFlyTarget {
+  cells?: ArrayLike<number>;
+  /** 世界坐标;x1 可以超过 width(跨东西接缝) */
+  box?: { x0: number; y0: number; x1: number; y1: number };
+  /** 国家按 year 那一年的国土 */
+  polities?: ViewRef[];
+  regions?: ViewRef[];
+  settlements?: ViewRef[];
+  /** 不给 = 时间轴停的那一年 */
+  year?: number;
+}
+
+export interface ViewHighlightSpec {
+  /** 国家按 year 那一年的国土,圈得淡 */
+  polities?: ViewRef[];
+  /** 州,圈得浓 */
+  regions?: ViewRef[];
+  /** 不给 = 时间轴停的那一年 */
+  year?: number;
+}
+
+// ---------------------------------------------------------------------------
 // 点选(input.pick)
 
 export interface BoxPick {
@@ -432,24 +690,43 @@ export interface BoxPick {
 // ---------------------------------------------------------------------------
 // 插件面板(ui.panel):插件只说放什么,长什么样由网站画
 
-/** 按钮、下拉、滑块、开关的 id:字母数字、- 和 _,最长 32 */
+/** 链接、能点的行指向的东西:国、城、州的稳定键(PolityInfo、SettlementInfo、RegionInfo 的 key),或一个年份 */
+export type PanelTarget = { key: string } | { year: number };
+
+/** 一段字里的一截链接:id、to 至少给一个 */
+export interface PanelLink {
+  text: string;
+  id?: string;
+  to?: PanelTarget;
+}
+
+/** 按钮、下拉、滑块、开关、输入框、颜色、页签、能点的表格和列表、链接的 id:字母数字、- 和 _,最长 32 */
 export type PanelNode =
   | { type: 'heading'; text: string }
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string | (string | PanelLink)[] }
   | { type: 'number'; label: string; value: number; unit?: string }
-  | { type: 'table'; columns: string[]; rows: (string | number)[][] }
-  | { type: 'list'; items: string[] }
+  /** 给 id 的一行一行能点;to 和 rows 一样长,null = 这一行不指向什么 */
+  | { type: 'table'; columns: string[]; rows: (string | number)[][]; id?: string; to?: (PanelTarget | null)[] }
+  | { type: 'list'; items: string[]; id?: string; to?: (PanelTarget | null)[] }
   | { type: 'button'; id: string; label: string; disabled?: boolean }
   | { type: 'select'; id: string; label: string; options: { value: string; label: string }[]; value?: string }
   | { type: 'slider'; id: string; label: string; min: number; max: number; step?: number; value: number }
   | { type: 'toggle'; id: string; label: string; value: boolean }
+  /** 输入框:max 是最多几个字(1–2000,不给 = 单行 200、多行 2000);没有密码框 */
+  | { type: 'input'; id: string; label: string; value?: string; placeholder?: string; max?: number; multiline?: boolean }
+  | { type: 'color'; id: string; label: string; value: Hex }
+  /** 页签:一页一组,value 是一开始显示第几页(从 0 数) */
+  | { type: 'tabs'; id?: string; value?: number; tabs: { title: string; children: PanelNode[] }[] }
   | { type: 'legend'; items: { color: Hex; label: string }[] }
   | { type: 'divider' }
   /** value 0–1 */
   | { type: 'progress'; value: number; label?: string }
   | { type: 'group'; title?: string; children: PanelNode[] };
 
-/** 用的人动了面板上的东西:按钮没有 value */
+/**
+ * 用的人动了面板上的东西:按钮、链接没有 value;开关 true / false;下拉是选中那项的 value;滑块是数;
+ * 输入框是字;颜色是 #rrggbb;能点的表格、列表是第几行(从 0 数);页签是第几页
+ */
 export interface PanelAction {
   id: string;
   value?: string | number | boolean;
@@ -540,6 +817,28 @@ export interface MarkLayerSpec {
 }
 
 // ---------------------------------------------------------------------------
+// 存文件、选文件(file.save / file.open):网站在插件卡上问用的人
+
+/** name 带扩展名,只能是 csv、tsv、txt、json、geojson、png、jpg、jpeg、webp;content 是字(文字类)或 Uint8Array,最大 2 MB */
+export interface SaveFileSpec {
+  name: string;
+  content: string | Uint8Array | ArrayBuffer;
+}
+
+/** accept:只收哪几种扩展名(不给 = 都收);max:最大多少字节(不给 = 16 MB) */
+export interface OpenFileSpec {
+  accept?: string[];
+  max?: number;
+}
+
+export interface OpenedFile {
+  /** 用的人那边的文件名(不带路径) */
+  name: string;
+  size: number;
+  bytes: Uint8Array;
+}
+
+// ---------------------------------------------------------------------------
 // civAtlas
 
 type Call<A, R> = (args: A) => Promise<R>;
@@ -568,6 +867,7 @@ export interface CivAtlas {
     neighbors: Call0<Neighbors>;
     rivers: Call0<RiverInfo[]>;
     legend: Call<{ kind: 'biome' | 'water' }, LegendEntry[]>;
+    plates: Call0<PlateInfo[]>;
   };
   history: {
     span: Call0<HistorySpan>;
@@ -584,6 +884,19 @@ export interface CivAtlas {
     people: Call<{ offset?: number; limit?: number; polity?: number; role?: PersonInfo['role'] }, Page<PersonInfo>>;
     /** 编年史 [from, to] 年里的条目,字已经换好名字;一次最多 2000 条 */
     events: Call<{ from?: number; to?: number; offset?: number; limit?: number }, Page<EventInfo>>;
+    /** 改朝换代过的国家的各朝;一次最多 2000 个 */
+    dynasties: Call<{ polity?: number; offset?: number; limit?: number }, Page<DynastyInfo>>;
+    /** 给了年份 = 只列那一年在的;一次最多 2000 份 */
+    treaties: Call<{ year?: number; offset?: number; limit?: number }, Page<TreatyInfo>>;
+    zones: Call<{ year?: number; offset?: number; limit?: number }, Page<ZoneInfo>>;
+    /** 那一年的盟约和宗藩 */
+    relations: Call<{ year: number }, RelationsInfo>;
+    /** 给了年份 = 只列那一年在的(通着、断着都算);一次最多 2000 条 */
+    trade: Call<{ year?: number; offset?: number; limit?: number }, Page<TradeInfo>>;
+    /** 一次最多 2000 次 */
+    migrations: Call<{ offset?: number; limit?: number }, Page<MigrationInfo>>;
+    /** 那一年每州一个数(数组长 = history.regions() 的个数);一次最多取 32 种 */
+    regionStats<F extends RegionStat>(args: { year: number; fields: F[] }): Promise<Record<F, Float32Array>>;
   };
   author: {
     marks: Call0<AuthorMarkInfo[]>;
@@ -593,17 +906,29 @@ export interface CivAtlas {
     interventions: Call0<InterventionInfo[]>;
     /** AI 写的正文;一次最多 100 篇 */
     notes: Call<{ offset?: number; limit?: number }, Page<AuthorNoteInfo>>;
+    /** 改过的地形:地形修改、地形大事、草图 */
+    terrain: Call0<AuthorTerrainInfo>;
     /** 提一批修改(最多 200 条):有一条不合格整批不改;照办的整批记一步撤销 */
     apply: Call<{ changes: AuthorChange[] }, ApplyResult>;
   };
-  view: { get: Call0<ViewInfo> };
+  view: {
+    get: Call0<ViewInfo>;
+    /** 时间轴翻到这一年(正在放的停下);一秒最多 4 次 */
+    seek: Call<{ year: number }, void>;
+    /** 地图飞过去看全;一秒最多 2 次 */
+    fly: Call<ViewFlyTarget, void>;
+    /** 一直圈着(换掉上一次圈的,不挪地图);一秒最多 10 次 */
+    highlight: Call<ViewHighlightSpec, void>;
+    /** 拿掉自己圈的 */
+    unhighlight: Call0<void>;
+  };
   pick: {
     cell: Call<{ hint?: string }, { cell: number }>;
     cells: Call<{ hint?: string; max?: number }, { cells: Int32Array }>;
     box: Call<{ hint?: string }, BoxPick>;
   };
   panel: {
-    /** 整个换掉;一个面板最多 2000 个节点、4000 字,表格最多 500 行 */
+    /** 整个换掉;一个面板最多 2000 个节点、4000 字,表格最多 500 行,输入框最多 2000 字,页签最多 8 页 */
     set: Call<{ nodes: PanelNode[] }, void>;
     clear: Call0<void>;
   };
@@ -621,5 +946,11 @@ export interface CivAtlas {
     local: { get: Call0<StoredData | null>; set: Call<StoredData, void>; clear: Call0<void> };
     /** 存进这个世界(带了它的世界不能公开分享);最多 1 MB */
     world: { get: Call0<StoredData | null>; set: Call<StoredData, void>; clear: Call0<void> };
+  };
+  file: {
+    /** 用的人点了「保存」才 resolve(name 是网站整理过的文件名);点「不要」、又交来一份新的 = cancelled */
+    save: Call<SaveFileSpec, { name: string }>;
+    /** 一次一个;用的人不给 = cancelled */
+    open: Call<OpenFileSpec, OpenedFile>;
   };
 }

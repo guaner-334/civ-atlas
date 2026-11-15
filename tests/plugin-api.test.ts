@@ -239,6 +239,105 @@ describe('面板', () => {
     expect(panelValue(p, 'mode', 'z')).toBeNull();
     expect(panelValue(p, 'nope', 1)).toBeNull();
   });
+
+  const more: unknown[] = [
+    { type: 'input', id: 'q', label: '找国家', placeholder: '输入国名里的几个字' },
+    { type: 'input', id: 'names', label: '只看这几国', value: '甲\r\n乙', multiline: true, max: 100 },
+    { type: 'text', text: ['第一名是', { text: '大昌', to: { key: 'polity:c12#0' } }, ',', { text: '402 年', id: 'y402', to: { year: 402 } }, '立国。'] },
+    { type: 'table', id: 'rank', columns: ['国家', '州'], rows: [['大昌', 3], ['索拉', 1]], to: [{ key: 'polity:c12#0' }, null] },
+    { type: 'list', id: 'events', items: ['一', '二'], to: [{ year: 2999 }, { year: 2998 }] },
+    { type: 'list', items: ['只给 to'], to: [{ key: 'region:c40' }] },
+    {
+      type: 'tabs',
+      id: 'page',
+      value: 1,
+      tabs: [
+        { title: '排行', children: [{ type: 'text', text: 'x' }] },
+        { title: '设置', children: [{ type: 'group', title: '国都标记', children: [{ type: 'color', id: 'col', label: '颜色', value: '#C4372B' }] }] },
+      ],
+    },
+  ];
+
+  it('输入框、链接、能点的行、页签、颜色:合格的留下,没给的字段不补', () => {
+    const p = checkPanel(more);
+    expect(p[0]).toEqual({ type: 'input', id: 'q', label: '找国家', placeholder: '输入国名里的几个字' });
+    expect(p[1]).toEqual({ type: 'input', id: 'names', label: '只看这几国', value: '甲\n乙', multiline: true, max: 100 });
+    expect(p[2]).toEqual({ type: 'text', text: ['第一名是', { text: '大昌', to: { key: 'polity:c12#0' } }, ',', { text: '402 年', id: 'y402', to: { year: 402 } }, '立国。'] });
+    expect(p[3]).toMatchObject({ id: 'rank', to: [{ key: 'polity:c12#0' }, null] });
+    expect(p[5]).toEqual({ type: 'list', items: ['只给 to'], to: [{ key: 'region:c40' }] });
+    expect(p[6]).toMatchObject({ type: 'tabs', id: 'page', value: 1 });
+    expect((p[6] as Extract<PanelNode, { type: 'tabs' }>).tabs[1].children[0]).toEqual({ type: 'group', title: '国都标记', children: [{ type: 'color', id: 'col', label: '颜色', value: '#c4372b' }] });
+    // 单行输入框的值里的换行换成空格
+    expect(checkPanel([{ type: 'input', id: 'a', label: 'x', value: '甲\n乙' }])[0]).toMatchObject({ value: '甲 乙' });
+  });
+
+  it('新格子不合格的报 bad-args,超上限的报 limit', () => {
+    const bads: unknown[] = [
+      { type: 'input', label: 'x' },
+      { type: 'input', id: 'a', label: 'x', multiline: 'yes' },
+      { type: 'input', id: 'a', label: 'x', max: 0 },
+      { type: 'input', id: 'a', label: 'x', max: 1.5 },
+      { type: 'input', id: 'a', label: 'x', value: 3 },
+      { type: 'color', id: 'a', label: 'x', value: 'red' },
+      { type: 'color', id: 'a', label: 'x' },
+      { type: 'text', text: [{ text: '没有 id 也没有 to' }] },
+      { type: 'text', text: [{ text: '', id: 'a' }] },
+      { type: 'text', text: [3] },
+      { type: 'text', text: [{ text: 'x', to: { key: 'person:c1#0' } }] },
+      { type: 'text', text: [{ text: 'x', to: { key: 'polity:c1#0', year: 3 } }] },
+      { type: 'text', text: [{ text: 'x', to: { year: -1 } }] },
+      { type: 'text', text: [{ text: 'x', to: { year: 1.5 } }] },
+      { type: 'table', columns: [], rows: [[1], [2]], to: [null] },
+      { type: 'table', columns: [], rows: [[1]], id: 'a b' },
+      { type: 'list', items: ['a'], to: ['polity:c1#0'] },
+      { type: 'tabs', tabs: [] },
+      { type: 'tabs', tabs: [{ title: '', children: [] }] },
+      { type: 'tabs', tabs: [{ title: 'a', children: [] }], value: 1 },
+      { type: 'tabs', tabs: [{ title: 'a', children: [{ type: 'tabs', tabs: [{ title: 'b', children: [] }] }] }] },
+      { type: 'tabs', tabs: [{ title: 'a', children: [{ type: 'group', children: [{ type: 'tabs', tabs: [{ title: 'b', children: [] }] }] }] }] },
+      { type: 'password', id: 'a', label: '密码' },
+    ];
+    for (const b of bads) expect(codeOf(() => checkPanel([b])), JSON.stringify(b)).toBe('bad-args');
+    // id 和别的控件重了:链接、能点的表格、页签都算
+    expect(codeOf(() => checkPanel([{ type: 'button', id: 'a', label: 'x' }, { type: 'text', text: [{ text: 'y', id: 'a' }] }]))).toBe('bad-args');
+    expect(codeOf(() => checkPanel([{ type: 'button', id: 'a', label: 'x' }, { type: 'list', id: 'a', items: [] }]))).toBe('bad-args');
+    const limits: unknown[] = [
+      { type: 'input', id: 'a', label: 'x', max: 2001 },
+      { type: 'input', id: 'a', label: 'x', value: 'x'.repeat(201) },
+      { type: 'input', id: 'a', label: 'x', max: 5, value: '123456' },
+      { type: 'text', text: Array(201).fill('x') },
+      { type: 'text', text: [{ text: 'x'.repeat(81), id: 'a' }] },
+      { type: 'tabs', tabs: Array(9).fill({ title: 'a', children: [] }) },
+      { type: 'tabs', tabs: [{ title: 'x'.repeat(17), children: [] }] },
+      { type: 'list', items: ['a'], to: Array(501).fill(null) },
+    ];
+    for (const l of limits) expect(codeOf(() => checkPanel([l])), JSON.stringify(l).slice(0, 80)).toBe('limit');
+    // 多行默认 2000 字;输入框的值也算进面板一共 4000 字
+    expect(checkPanel([{ type: 'input', id: 'a', label: 'x', multiline: true, value: 'x'.repeat(2000) }])).toHaveLength(1);
+    expect(codeOf(() => checkPanel([{ type: 'input', id: 'a', label: 'x', multiline: true, value: 'x'.repeat(2001) }]))).toBe('limit');
+    expect(codeOf(() => checkPanel([1, 2, 3].map((i) => ({ type: 'input', id: `a${i}`, label: 'x', multiline: true, value: 'x'.repeat(1500) }))))).toBe('limit');
+  });
+
+  it('新格子用的人动了以后:值要合那个控件', () => {
+    const p = checkPanel(more) as PanelNode[];
+    expect(panelValue(p, 'q', '塞雷')).toEqual({ id: 'q', value: '塞雷' });
+    expect(panelValue(p, 'q', '塞\n雷‮')).toEqual({ id: 'q', value: '塞 雷' });
+    expect(panelValue(p, 'q', 'x'.repeat(201))).toBeNull();
+    expect(panelValue(p, 'q', 3)).toBeNull();
+    expect(panelValue(p, 'names', '甲\r\n乙')).toEqual({ id: 'names', value: '甲\n乙' });
+    expect(panelValue(p, 'names', 'x'.repeat(101))).toBeNull();
+    expect(panelValue(p, 'y402', 'x')).toEqual({ id: 'y402' });
+    expect(panelValue(p, 'rank', 1)).toEqual({ id: 'rank', value: 1 });
+    expect(panelValue(p, 'rank', 2)).toBeNull();
+    expect(panelValue(p, 'rank', 0.5)).toBeNull();
+    expect(panelValue(p, 'rank', '0')).toBeNull();
+    expect(panelValue(p, 'events', 0)).toEqual({ id: 'events', value: 0 });
+    expect(panelValue(p, 'page', 0)).toEqual({ id: 'page', value: 0 });
+    expect(panelValue(p, 'page', 2)).toBeNull();
+    // 页签里的控件:不管哪一页显示着都找得到
+    expect(panelValue(p, 'col', '#3478D4')).toEqual({ id: 'col', value: '#3478d4' });
+    expect(panelValue(p, 'col', 'blue')).toBeNull();
+  });
 });
 
 describe('图层', () => {

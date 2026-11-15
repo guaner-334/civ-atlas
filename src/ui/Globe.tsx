@@ -1926,7 +1926,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   // ---- 编年史点一条:事发地不在球的正面中间,就把球转过去(走短边) ----
   const hlStamp = hl?.stamp;
   useEffect(() => {
-    if (!hl || !civ || civ.regions.of.length !== world.mesh.n) return;
+    if (!hl || hl.still || !civ || civ.regions.of.length !== world.mesh.n) return;
     const b = highlightBox(world, civ, highlightMarks(civ, hl));
     if (!b) return;
     const [lon, lat] = worldToLonLat((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, world.width, world.height);
