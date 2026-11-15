@@ -1,5 +1,5 @@
 /**
- * 第二批按国的影响口(gen/civ/influence.ts 里 revolt.odds 往后的那些):各口往对的方向推;
+ * 第二批影响口(gen/civ/influence.ts 里 revolt.odds 往后的那些,先是按国的、后是按州的):各口往对的方向推;
  * 读口 wars() 的目标、年限算上插件交的倍数;存下接着推、分段推都和一口气推完一样。
  * 交不影响的数和不装一样、几个插件交的乘在一起,在 civ-influence.test.ts(NEUTRAL 里有这一批)
  */
@@ -14,9 +14,12 @@ import { simRead } from '../src/gen/civ/simRead';
 import { effOf, polityModelOf } from '../src/gen/civ/polities';
 import { goalOf, lengthOf, warModelOf } from '../src/gen/civ/wars';
 import type { Annal } from '../src/gen/civ/types';
+import { PLAGUE_IV } from '../src/gen/civ/calamity';
+import { populationAt } from '../src/gen/civ/growth';
+import { settlementKey } from '../src/gen/edits';
 import { mulberry32, subSeed } from '../src/gen/util';
 import { civDiff } from '../scripts/lib/resumeFuzz';
-import { POLITY_MORE, parity, steady, swayMore } from './lib/influencePlugins';
+import { POLITY_MORE, REGION_MORE, parity, steady, swayMore } from './lib/influencePlugins';
 
 const PARAMS = { ...DEFAULT_PARAMS, cells: 12000 };
 const worlds = new Map<number, World>();
@@ -147,6 +150,68 @@ describe('第二批按国的影响口:往对的方向推(推 3000 年)', () => {
   }, 120_000);
 });
 
+/** 自己起的瘟疫(不算全球大疫)每一场一共染了几州 */
+function outbreakSizes(c: Civ): number[] {
+  const by = new Map<number, number>();
+  for (const e of c.annals) if (e.kind === 'plague' && e.cause !== 'pandemic') by.set(e.war, (by.get(e.war) ?? 0) + e.b);
+  return [...by.values()];
+}
+
+describe('第二批按州的影响口:往对的方向推(推 3000 年)', () => {
+  it('交 0:洗劫、毁城、重建、饥荒、民族分化、大迁徙都不再自己发生,自己起的瘟疫不往外传', () => {
+    const rows: [string, (c: Civ) => number][] = [
+      ['sack.odds', (c) => count(c, 'sack')],
+      ['rebuild.odds', (c) => count(c, 'rebuild')],
+      ['famine.odds', (c) => count(c, 'famine')],
+      ['diverge.odds', (c) => count(c, 'diverge')],
+      ['trek.odds', (c) => c.migrations?.length ?? 0],
+      ['plague.spread', (c) => outbreakSizes(c).filter((n) => n > 1).length],
+    ];
+    for (const seed of [7, 2024]) {
+      const w = worldOf(seed);
+      const base = generateCiv(w);
+      // 毁城单独推:城不毁就没有重建
+      const zero = generateCiv(w, { plugins: [steady('p', Object.fromEntries(rows.map(([k]) => [k, 0])), 5)] });
+      for (const [k, f] of rows) {
+        expect(f(base), `seed ${seed} 官方推出来有 ${k} 管的事`).toBeGreaterThan(0);
+        expect(f(zero), `seed ${seed} ${k}`).toBe(0);
+      }
+      expect(outbreakSizes(zero).length, `seed ${seed} 瘟疫照样起`).toBeGreaterThan(0);
+      expect(count(base, 'ruin')).toBeGreaterThan(0);
+      expect(count(generateCiv(w, { plugins: [steady('p', { 'ruin.odds': 0 }, 5)] }), 'ruin'), `seed ${seed} ruin.odds`).toBe(0);
+    }
+  }, 180_000);
+
+  it('瘟疫传开只管自己起的:作者下的瘟疫照样往外传', () => {
+    const w = worldOf(7);
+    const plugins = [steady('p', { 'plague.spread': 0 }, 5)];
+    const zero = generateCiv(w, { plugins, endYear: 1300 });
+    let city = -1;
+    for (const s of zero.settlements) if (s.ended === undefined && (city < 0 || populationAt(s, 1300) > populationAt(zero.settlements[city], 1300))) city = s.id;
+    const c = generateCiv(w, { plugins, interventions: [{ kind: 'disaster', type: 'plague', level: 3, from: 1300, city: settlementKey(zero, city) }] });
+    const hit = c.annals.filter((e) => e.kind === 'plague' && e.war === PLAGUE_IV).reduce((n, e) => n + e.b, 0);
+    expect(hit).toBeGreaterThan(1);
+    expect(outbreakSizes(c).filter((n) => n > 1)).toEqual([hit]);
+  }, 60_000);
+
+  it('交 4:洗劫、饥荒、民族分化、大迁徙都多了;守这一州 ×4 攻下的州少、×¼ 多', () => {
+    const more: [string, (c: Civ) => number][] = [
+      ['sack.odds', (c) => count(c, 'sack')],
+      ['famine.odds', (c) => count(c, 'famine')],
+      ['diverge.odds', (c) => count(c, 'diverge')],
+      ['trek.odds', (c) => c.migrations?.length ?? 0],
+    ];
+    const conquer = (c: Civ) => count(c, 'conquer', (e) => e.b >= 0);
+    for (const seed of [7, 2024]) {
+      const w = worldOf(seed);
+      const base = generateCiv(w);
+      for (const [k, f] of more) expect(f(generateCiv(w, { plugins: [steady('p', { [k]: 4 }, 5)] })), `seed ${seed} ${k}`).toBeGreaterThan(f(base));
+      expect(conquer(generateCiv(w, { plugins: [steady('p', { 'defense.power': 4 }, 5)] })), `seed ${seed} 守 ×4`).toBeLessThan(conquer(base));
+      expect(conquer(generateCiv(w, { plugins: [steady('p', { 'defense.power': 0.25 }, 5)] })), `seed ${seed} 守 ×¼`).toBeGreaterThan(conquer(base));
+    }
+  }, 240_000);
+});
+
 describe('读口 wars():还在打的仗的目标、年限算上插件交给 war.goal、war.length 的倍数', () => {
   it.each([7, 2024])('第 1200、1700、2300 年,seed %i:单号国 ×4、双号国 ×¼', (seed) => {
     let checked = 0;
@@ -186,7 +251,7 @@ describe('读口 wars():还在打的仗的目标、年限算上插件交给 war.
   }
 });
 
-describe('第二批按国的影响口:分段推、存下接着推都和一口气推完一样', () => {
+describe('第二批影响口:分段推、存下接着推都和一口气推完一样', () => {
   const stepped = (world: World, params: Partial<CivParams>, stops: readonly number[]) => {
     const run = startCiv(world, params);
     for (const t of stops) run.advance(t);
@@ -205,7 +270,7 @@ describe('第二批按国的影响口:分段推、存下接着推都和一口气
       const w = worldOf(seed);
       const plugins = [swayMore()];
       const one = generateCiv(w, { ...params, plugins });
-      expect(Object.keys(one.simPlugins![0].influences!).sort()).toEqual([...POLITY_MORE].sort());
+      expect(Object.keys(one.simPlugins![0].influences!).sort()).toEqual([...POLITY_MORE, ...REGION_MORE].sort());
       sameBytes(stepped(w, { ...params, plugins }, [...randomStops(seed, 10), 1000 - 1 / 256].sort((a, b) => a - b)), one, `seed ${seed} 分段推`);
       for (const at of [1500, 1507.5]) {
         const saved = roundTrip(generateCiv(w, { ...params, plugins, endYear: at }));
