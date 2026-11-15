@@ -15,8 +15,14 @@
  * 纯状态 + history,不碰 React;单测里换一个假的 history(tests/nav.test.ts)。
  */
 
-/** gallery = 作品墙那一页(id 是作品编号时:打开作品墙上的那个作品,地图作品、取的时候、撤下了的那一页) */
+/** gallery = 作品墙那一页(id 是作品编号时:作品墙上开着那个作品的窗,或地图作品的星球、取的时候、撤下了的那一页) */
 export type NavPage = 'home' | 'draft' | 'world' | 'gallery';
+
+/**
+ * 作品墙上的作品打开以后的样子:world = 世界作品的世界,map = 地图作品的整屏星球。
+ * 只记在这个标签页的历史里、不进网址:刷新回到它,复制网址、新标签页打开还是先到介绍窗
+ */
+export type NavWork = 'world' | 'map';
 
 /** 这一步不是一个世界(没有要记下的世界) */
 const noWorld = (p: NavPage) => p === 'home' || p === 'gallery';
@@ -47,6 +53,8 @@ export interface NavState {
   title?: string;
   /** 新建:这一步的种子 */
   seed?: number;
+  /** 这一步是作品墙上的作品打开以后的样子(见 NavWork) */
+  work?: NavWork;
   /** 离开时这个世界存着(回来时不在了 = 删掉了) */
   stored?: boolean;
   layer?: NavLayer;
@@ -61,6 +69,7 @@ export interface NavInfo {
   id?: string;
   seed?: number;
   title?: string;
+  work?: NavWork;
 }
 
 export interface NavHooks {
@@ -104,6 +113,12 @@ export function isNavState(s: unknown): s is NavState {
   return !!s && typeof s === 'object' && (s as NavState).wf === 1 && Number.isInteger((s as NavState).idx);
 }
 
+/** 这一步记着的作品打开以后的样子(刷新时读 history.state;没记 = undefined,先到介绍窗) */
+export function navWorkOf(s: unknown): NavWork | undefined {
+  if (!isNavState(s)) return undefined;
+  return s.work === 'world' || s.work === 'map' ? s.work : undefined;
+}
+
 function remember(s: NavState) {
   cur = s;
   entries.set(s.idx, s);
@@ -131,6 +146,7 @@ function pageOf(info: NavInfo, idx: number, prev: boolean): NavState {
   if (info.id !== undefined) s.id = info.id;
   if (info.seed !== undefined) s.seed = info.seed;
   if (info.title) s.title = info.title;
+  if (info.work) s.work = info.work;
   return s;
 }
 
@@ -197,7 +213,10 @@ export function navUrl(url: string) {
 }
 
 const sameInfo = (s: NavState, info: NavInfo) =>
-  s.page === info.page && (info.page === 'home' || s.id === info.id) && (info.page !== 'draft' || info.seed === undefined || s.seed === info.seed);
+  s.page === info.page &&
+  (info.page === 'home' || s.id === info.id) &&
+  (info.page !== 'draft' || info.seed === undefined || s.seed === info.seed) &&
+  (info.page !== 'gallery' || s.work === info.work);
 
 /**
  * 换到一个新画面:记新的一步。还是同一个画面(重新载入这个世界、我的世界里又回我的世界)= 不多记;

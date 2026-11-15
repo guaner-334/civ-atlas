@@ -162,17 +162,25 @@ export async function pullShared(code: string, total: number, onBytes: (done: nu
   return adoptVisit(await fetchSharedFile(code, { total, onBytes }));
 }
 
-/** 打开作品墙上的世界作品:同短链接 */
-export async function pullWork(id: string, total: number, onBytes: (done: number, total: number) => void): Promise<SharedWorld> {
-  return adoptVisit(await fetchWorkFile(id, { total, onBytes }));
+/** 打开作品墙上的世界作品:同短链接。signal 停下 = 下载断开,取到一半的不留(已经放进世界仓库的也清掉) */
+export async function pullWork(id: string, total: number, onBytes: (done: number, total: number) => void, signal?: AbortSignal): Promise<SharedWorld> {
+  return adoptVisit(await fetchWorkFile(id, { total, onBytes, signal }), signal);
 }
 
+const stoppedError = () => new ServerError(0, 'stopped', '停下了');
+
 /** 放进世界仓库,记成已经过期的删除记录:没存进「我的世界」的,下次清理时清掉;改了存进来的,内容接着用 */
-async function adoptVisit(file: Blob): Promise<SharedWorld> {
+async function adoptVisit(file: Blob, signal?: AbortSignal): Promise<SharedWorld> {
+  if (signal?.aborted) throw stoppedError();
   const id = newWorldId();
   markTrash(id, Date.now() - TRASH_KEEP_MS);
   const free = holdWorld(id);
-  const r = await adoptWorldFile(id, file);
+  const r = await adoptWorldFile(id, file, () => (signal?.aborted ? 'stop' : 'go'));
+  if (signal?.aborted) {
+    free();
+    await vaultCall('purgeWorld', [id]).catch(() => {});
+    throw stoppedError();
+  }
   if (!r.ok) {
     free();
     throw new ServerError(0, r.kind, r.message);

@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setServerForTest } from '../src/account/server';
-import { fetchWork, galleryHref, galleryOfUrl, getGallery, isWorkGone, loadGallery, reportWork, resetGalleryForTest, wasReported, workLink, type GalleryItem } from '../src/account/gallery';
+import { cleanFacts, fetchWork, galleryHref, galleryOfUrl, getGallery, isWorkGone, loadGallery, reportWork, resetGalleryForTest, wasReported, workLink, type GalleryItem } from '../src/account/gallery';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
 import { GALLERY_BY_MAX, GALLERY_TITLE_MAX, SIGNATURE_MAX, TITLE_MAX, cleanOrigin, makeSave, parseSave, saveText, worldKey, type SaveOrigin } from '../src/gen/savefile';
@@ -211,6 +211,59 @@ describe('打开一个作品', () => {
     await expect(fetchWork('k7qm2xpa')).rejects.toThrow('看不懂');
     route = () => json(200, { ...LIST.works[0], full: { bytes: 100 } });
     await expect(fetchWork('k7qm2xpa')).rejects.toThrow('看不懂');
+  });
+});
+
+describe('世界作品的几样数(facts)', () => {
+  it('照着给的整理:都在、0 照样留着(那年 0 个国家是真的 0)', () => {
+    const ai = [
+      { kind: 'history', n: 2 },
+      { kind: 'names', n: 14 },
+    ];
+    expect(cleanFacts({ year: 6420, endYear: 8000, states: 14, peoples: 16, ai })).toEqual({ year: 6420, endYear: 8000, states: 14, peoples: 16, ai });
+    expect(cleanFacts({ year: 0, endYear: 3000, states: 0, peoples: 0 })).toEqual({ year: 0, endYear: 3000, states: 0, peoples: 0 });
+  });
+
+  it('缺哪项就没有哪项;没有 year(缺了、比 endYear 还大)时 states、peoples 一起不要', () => {
+    expect(cleanFacts({ endYear: 3000 })).toEqual({ endYear: 3000 });
+    expect(cleanFacts({ year: 1200 })).toEqual({ year: 1200 });
+    expect(cleanFacts({ endYear: 5000, states: 9, peoples: 17 })).toEqual({ endYear: 5000 });
+    expect(cleanFacts({ year: 5200, endYear: 5000, states: 9, peoples: 17 })).toEqual({ endYear: 5000 });
+    // 没有 endYear 时不比
+    expect(cleanFacts({ year: 5200, states: 9 })).toEqual({ year: 5200, states: 9 });
+  });
+
+  it('类型不对、超出范围的扔掉,不报错', () => {
+    expect(cleanFacts({ year: '6420', endYear: 8000.5, states: -1, peoples: null })).toBeUndefined();
+    expect(cleanFacts({ year: 100, endYear: 2999, states: 3.5, peoples: '4' })).toEqual({ year: 100 });
+    expect(cleanFacts({ endYear: 60001 })).toBeUndefined();
+    expect(cleanFacts({ endYear: 60000 })).toEqual({ endYear: 60000 });
+    for (const bad of [null, undefined, 3, 'x', [], [{ year: 1 }]]) expect(cleanFacts(bad)).toBeUndefined();
+  });
+
+  it('AI 写的:只认四种、篇数要是正整数,每种一项、按史书 释名 教义 风俗排;一篇都不剩就没有这一项', () => {
+    const ai = [{ kind: 'customs', n: 3 }, { kind: 'history', n: 0 }, { kind: 'history', n: 2 }, { kind: 'poem', n: 5 }, { kind: 'names', n: 1.5 }, { kind: 'doctrine', n: '1' }, { kind: 'customs', n: 9 }, null, 'history'];
+    expect(cleanFacts({ year: 10, ai })).toEqual({
+      year: 10,
+      ai: [
+        { kind: 'history', n: 2 },
+        { kind: 'customs', n: 3 },
+      ],
+    });
+    expect(cleanFacts({ year: 10, ai: [{ kind: 'names', n: 0 }] })).toEqual({ year: 10 });
+    expect(cleanFacts({ ai: { history: 2 } })).toBeUndefined();
+  });
+
+  it('取作品时:世界作品带着整理过的 facts;老服务器没给、给得不像样的没有这一项;别的种类不带', async () => {
+    const full = { sum: 'a'.repeat(64), bytes: 4_900_000 };
+    let facts: unknown = { year: 3000, endYear: 3000, states: 9, peoples: 17, ai: [{ kind: 'history', n: 1 }], secret: 'x' };
+    route = (req) => (new URL(req.url).pathname.endsWith('/m3np8rta') ? json(200, { ...LIST.works[1], preset: 'preset=1&name=x', facts }) : json(200, { ...LIST.works[0], full, facts }));
+    expect((await fetchWork('k7qm2xpa')).facts).toEqual({ year: 3000, endYear: 3000, states: 9, peoples: 17, ai: [{ kind: 'history', n: 1 }] });
+    expect((await fetchWork('m3np8rta')).facts).toBeUndefined();
+    facts = undefined;
+    expect('facts' in (await fetchWork('k7qm2xpa'))).toBe(false);
+    facts = 'bad';
+    expect('facts' in (await fetchWork('k7qm2xpa'))).toBe(false);
   });
 });
 

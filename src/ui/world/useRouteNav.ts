@@ -140,8 +140,8 @@ export function useRouteNav(deps: RouteNavDeps): void {
     closeHistoryBook();
     closeBookReader();
     if (to.page === 'home') return showHome();
-    // 作品墙那一页、一个作品(取的时候换了画面,取回来不再打开)
-    if (to.page === 'gallery') return to.id ? openWork(to.id) : showGallery();
+    // 作品墙那一页、开着窗的作品、地图作品的星球(取的时候换了画面,取回来不再打开)
+    if (to.page === 'gallery') return to.id ? openWork(to.id, to.work) : showGallery();
     wallSeq.current++;
     setWall(null);
     // 回到从作品墙打开的世界作品:左上那一条照旧
@@ -204,9 +204,9 @@ export function useRouteNav(deps: RouteNavDeps): void {
       setLanding('loading');
       return openShortShare(code, () => sameScreen(getNav(), to));
     }
-    // 从作品墙打开、还没存下的世界作品(刷新过,手上没有这个世界):和打开作品的网址一样再取一次
+    // 从作品墙打开、还没存下的世界作品(刷新过,手上没有这个世界):再取一次,直接进世界
     const gid = q.get('gallery');
-    if (gid) return openWork(gid);
+    if (gid) return openWork(gid, 'world');
     if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
     return showHome();
   };
