@@ -317,7 +317,7 @@ describe('面板', () => {
     // 多行默认 2000 字;输入框的值也算进面板一共 4000 字
     expect(checkPanel([{ type: 'input', id: 'a', label: 'x', multiline: true, value: 'x'.repeat(2000) }])).toHaveLength(1);
     expect(codeOf(() => checkPanel([{ type: 'input', id: 'a', label: 'x', multiline: true, value: 'x'.repeat(2001) }]))).toBe('limit');
-    expect(codeOf(() => checkPanel([1, 2, 3].map((i) => ({ type: 'input', id: `a${i}`, label: 'x', multiline: true, value: 'x'.repeat(1500) }))))).toBe('limit');
+    expect(codeOf(() => checkPanel(Array.from({ length: 11 }, (_, i) => i).map((i) => ({ type: 'input', id: `a${i}`, label: 'x', multiline: true, value: 'x'.repeat(2000) }))))).toBe('limit');
   });
 
   it('新格子用的人动了以后:值要合那个控件', () => {
