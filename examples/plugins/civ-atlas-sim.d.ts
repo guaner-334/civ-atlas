@@ -63,6 +63,8 @@ export interface PluginTurn<V> {
   readonly note: PluginNote | undefined;
   /** 上一回合下的命令里没办的(按回话里的先后;都办了 = 不给) */
   readonly refused?: readonly PluginRefused[];
+  /** 这一次出手开始时还能写几句编年史(超了照样出错、推演停下) */
+  readonly chronicleLeft: number;
   /** 读口 */
   readonly read: V;
   /** 自己的表此刻的值(复制的一份,格 × 栏) */
@@ -197,6 +199,8 @@ export type AnnalCause =
 
 export interface SimRegions {
   count: number;
+  /** 每州的稳定键(`region:c4567` 这类,命令里能直接写,同一个世界里地形大事前后不变) */
+  keys: string[];
   /** 平方公里 */
   area: Float64Array;
   /** 治所地块 */

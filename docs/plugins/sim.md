@@ -124,6 +124,8 @@ export interface PluginTurn<V> {
   readonly note: PluginNote | undefined;
   /** 上一回合下的命令里没办的(按回话里的先后;都办了 = 不给) */
   readonly refused?: readonly PluginRefused[];
+  /** 这一次出手开始时还能写几句编年史(超了照样出错、推演停下) */
+  readonly chronicleLeft: number;
   /** 读口 */
   readonly read: V;
   /** 自己的表此刻的值(复制的一份,格 × 栏) */
@@ -169,7 +171,7 @@ export interface PluginReply {
 | 读口 | 交回 |
 |---|---|
 | `read.year` | 此刻(年) |
-| `read.regions()` | 州:`count` 个数、`area` 面积(平方公里)、`seat` 治所地块、`biome` 主导地貌、`coastal`(1 = 临海)、`habitability` 宜居分、`neighbors`(州 `r` 的邻州是 `list[start[r] .. start[r + 1])`,含海峡、航线) |
+| `read.regions()` | 州:`count` 个数、`area` 面积(平方公里)、`seat` 治所地块、`biome` 主导地貌、`coastal`(1 = 临海)、`habitability` 宜居分、`neighbors`(州 `r` 的邻州是 `list[start[r] .. start[r + 1])`,含海峡、航线)、`keys` 每州的稳定键(见下) |
 | `read.owners(field)` | 此刻各州归属,`field` 是 `'polity'`(国)、`'culture'`(民族)、`'faith'`(信仰);没有 = −1 |
 | `read.polities()` | 所有国家(亡了的也在,`ended` 是亡国那年):国都、民族、从哪国分出来、几州、国力、国库、正在和谁打仗、盟国(含作者的干预和插件命令结的盟)、宗主、国教、政体、议政、朝代和政体分段、议事定下的规矩(征法、分封、军制、官制)、方针…… |
 | `read.settlements()` | 所有城(毁了的也在):在哪一州、人口(千人)、等级、是不是港口、建城时的民族、人口上限 |
@@ -192,7 +194,7 @@ export interface PluginReply {
 
 各字段的意思写在 [`civ-atlas-sim.d.ts`](../../examples/plugins/civ-atlas-sim.d.ts) 的 `SimRead` 那几个类型上;和工具插件读历史的接口同名的字段,意思也一样。
 
-**编号只在这一次推演里有效。** 国、城、民族、信仰的编号就是这些列表的下标,同一次推演里一直指同一个(国亡了也还在列表里);州的编号在地形大事以后会变。拿此刻的编号下命令、写编年史都行;换一个世界、改了历史就不一定指同一个了。命令里也认稳定键(见[命令](#命令simcommands1和-turnrefused))。
+**编号只在这一次推演里有效。** 国、城、民族、信仰的编号就是这些列表的下标,同一次推演里一直指同一个(国亡了也还在列表里);州的编号在地形大事以后会变。拿此刻的编号下命令、写编年史都行;换一个世界、改了历史就不一定指同一个了。命令里也认稳定键(见[命令](#命令simcommands1和-turnrefused))。州的稳定键在 `read.regions().keys` 里:`keys[r]` 是州 `r` 的键(`region:c4567` 这类),命令里能直接写,和工具插件 `history.regions()` 的 `key`、作者干预里的州键是同一套。同一个世界里一个州的键一直不变:地形大事前后、换了治所、陆地沉了都一样;大事以后新冒出来的州有自己的新键,不和已有的重。较早的网站上没有 `keys`(读到 `undefined`),要兼容就先判断。
 
 ## 小本子(`sim.state@1`)
 
@@ -256,7 +258,7 @@ civAtlas.sim({
 
 **听史事**(`sim.read@1`):清单 `sim.listen` 写要听哪几种史事(`war` 宣战、`fall` 亡国、`split` 分裂、`plague` 瘟疫……,种类见 [`civ-atlas-sim.d.ts`](../../examples/plugins/civ-atlas-sim.d.ts) 的 `AnnalKind`,各列的意思见 [`src/gen/civ/annals.ts`](../../src/gen/civ/annals.ts))。每次出手,`turn.heard` 是上次出手以后官方记下的这几种,按发生先后;`a`、`b` 按种类是国、民族或城的编号,`region`、`settlement`、`war` 没有是 −1。有由头的另带 `cause`(宣战为什么打、盟约怎么断的……,见 `AnnalCause`),立约、约满、设中立地另带 `ps`(约里的几国)。最多听 64 种。
 
-**写编年史**(`sim.chronicle@1`):回话里的 `chronicle` 是几句话,记在此刻。一句是 `{ text, refs }`:`text` 里用 `{国:a}`、`{州:r}`、`{城:s}`、`{族:c}` 指代,`refs` 给每个指代此刻的编号。存下的是编号,显示时换成名字,所以作者改了国名,编年史跟着变。一句最多 80 个字(不算占位符)、8 个占位符;一个插件在一个世界里最多写 10000 句。
+**写编年史**(`sim.chronicle@1`):回话里的 `chronicle` 是几句话,记在此刻。一句是 `{ text, refs }`:`text` 里用 `{国:a}`、`{州:r}`、`{城:s}`、`{族:c}` 指代,`refs` 给每个指代此刻的编号。存下的是编号,显示时换成名字,所以作者改了国名,编年史跟着变。一句最多 80 个字(不算占位符)、8 个占位符;一个插件在一个世界里最多写 10000 句。`turn.chronicleLeft` 是这一次出手开始时你还能写几句(10000 减去已经写的,接着推以前写的也算)。一次回话写的比它多,超出的那一句照样出错、推演停下,不会自动截掉。较早的网站上没有它(读到 `undefined`)。
 
 下面是「亡国录」:每亡 50 国,编年史记一句:
 
@@ -490,7 +492,7 @@ civAtlas.sim({
 
 全球大疫下不了(`disaster` 只有瘟疫、饥荒、地震水旱)。
 
-国、州、城、民族写此刻读口里的编号,或稳定键(`polity:c4567#0` 这类,和工具插件、作者的干预同一套)。写法不对(编号不在、字段不认得)算出错。一次最多 64 条,一个世界里推演插件一共最多下 10000 条。
+国、州、城、民族写此刻读口里的编号,或稳定键(`polity:c4567#0` 这类,和工具插件、作者的干预同一套)。写法不对(编号不在、字段不认得)算出错。一次最多 256 条,一个世界里推演插件一共最多下 10000 条。
 
 每条命令生效时记一条史事 `intervene`(`war` 列是它在干预列表里的第几条);办成了紧跟着记它引起的事:停战 `peace`、称臣 `submit`、放藩 `defect`、断盟 `unally`、废约 `expire`、撤中立地 `neutral`、改朝换代 `dynasty`、分裂 `split`、改民族 `assimilate`。没办成(上表写了「不办」的,还有指的国那一刻已亡)的只记那一条 `intervene`。
 

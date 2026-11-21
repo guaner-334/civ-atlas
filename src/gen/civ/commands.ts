@@ -7,7 +7,7 @@ import { YEAR_TICKS, isCommand, keyByRegion, regionOfKey, type Intervention, typ
 import { checkIntervention } from '../ivCheck';
 import type { CivSim } from './engine/sim';
 import type { PluginRefused } from './engine/plugin';
-import { Layer, type Polity } from './types';
+import { Layer, type Polity, type Regions } from './types';
 import { fpow, keyed } from './engine/rand';
 import { canCross, polityModelOf } from './polities';
 import { cultureModelOf } from './cultures';
@@ -43,16 +43,26 @@ const REFS: Readonly<Record<string, Ref>> = { a: 'polity', b: 'polity', by: 'pol
 
 const isInt = (x: unknown, n: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < n;
 
+/** 州编号 → 稳定键的位置段(`c<最早治所地块>`,超出 seat 退回 `r<州号>`) */
+function regionAnchor(seat: ArrayLike<number>, r: number): string {
+  return r >= 0 && r < seat.length ? `c${seat[r]}` : `r${r}`;
+}
+
+/** 州编号 → 稳定键(和命令解析、edits.ts 的 regionKey 同一套) */
+export function regionKeyAt(reg: Pick<Regions, 'seat' | 'keySeat'>, r: number): string {
+  return `region:${regionAnchor(reg.keySeat ?? reg.seat, r)}`;
+}
+
 /** 读口里的编号 → 稳定键(和 interventions.ts 解析键同一个算法,这一刻解析回来就是它) */
 function keyMaker(sim: CivSim): (ref: Ref, x: number) => string | null {
   const pm = polityModelOf(sim)!;
   const reg = pm.terrain.regions;
   const seat = reg.keySeat ?? reg.seat;
   const R = sim.R;
-  const at = (r: number) => (r >= 0 && r < seat.length ? `c${seat[r]}` : `r${r}`);
+  const at = (r: number) => regionAnchor(seat, r);
   return (ref, x) => {
     const S = pm.settlements;
-    if (ref === 'region') return isInt(x, R) ? `region:${at(x)}` : null;
+    if (ref === 'region') return isInt(x, R) ? regionKeyAt(reg, x) : null;
     if (ref === 'settlement') {
       if (!isInt(x, S.length)) return null;
       let n = 0;
