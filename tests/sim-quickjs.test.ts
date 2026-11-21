@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, startContinue, type Civ } from '../src/gen/civ';
 import { PluginError, type PluginTurn, type SimPlugin } from '../src/gen/civ/engine/plugin';
+import { CHRONICLE_LIMITS } from '../src/gen/civ/engine/pluginChronicle';
 import { keyed, keyed4, subSeed } from '../src/gen/civ/engine/rand';
 import type { SimRead } from '../src/gen/civ/simRead';
 import { quickjsPlugin, type QuickJSLimits, type QuickJSPlugin } from '../src/gen/quickjs/sim';
@@ -99,6 +100,7 @@ function turnOf(over: Partial<Record<string, unknown>> = {}, read: Record<string
     events: [],
     heard: [],
     note: undefined,
+    chronicleLeft: CHRONICLE_LIMITS.lines,
     read: { year: 0, ...read } as unknown as SimRead,
     table: (t: string) => {
       throw new PluginError(ID, `没有表 ${t}`);
@@ -349,7 +351,7 @@ describe('递数据', () => {
     const events = [{ year: 3.5, kind: 2, data: [-0, 7] }];
     const heard = [{ year: 3, kind: 'war', a: 1, b: 2, region: -1, settlement: -1, war: 5 }];
     const r = await once('return { commands: [Object.keys(turn).join(), turn.refused, turn.events, turn.heard, Object.is(turn.events[0].data[0], -0)] };', turnOf({ events, heard, refused }));
-    expect(r?.commands).toEqual(['year,tick,events,heard,note,read,table,rand,influence,column,refused', refused, events, heard, true]);
+    expect(r?.commands).toEqual(['year,tick,events,heard,note,chronicleLeft,read,table,rand,influence,column,refused', refused, events, heard, true]);
   });
 
   it('读口的参数是 ±Infinity、-0 时各算各的,不和别的参数共用一份', async () => {

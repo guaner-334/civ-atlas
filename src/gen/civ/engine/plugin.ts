@@ -130,6 +130,8 @@ export interface PluginTurn<V> {
   readonly note: PluginNote | undefined;
   /** 上一回合下的命令里没办的(按回话里的先后;都办了 = 不给) */
   readonly refused?: readonly PluginRefused[];
+  /** 这一次出手开始时还能写几句编年史(超了照样出错、推演停下) */
+  readonly chronicleLeft: number;
   /** 读口(规则包给的) */
   readonly read: V;
   /** 自己的表此刻的值(复制的一份,格 × 栏) */
@@ -679,6 +681,7 @@ class Host<V> {
       heard,
       note: this.note === undefined ? undefined : cleanNote(this.id, this.note),
       ...(refused.length ? { refused } : {}),
+      chronicleLeft: Math.max(0, CHRONICLE_LIMITS.lines - this.written),
       read: this.bridge.read,
       table: (t: string) => {
         if (!this.eng || !this.cards.has(t)) throw new PluginError(this.id, `没有表 ${t}`);

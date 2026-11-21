@@ -29,11 +29,14 @@ import { treatyModelOf } from './treaties';
 import { liveTrade } from './trade';
 import { trekModelOf } from './migration';
 import { plagueModelOf } from './plague';
+import { regionKeyAt } from './commands';
 
 export const SIM_READ = 'sim.read@1';
 
 export interface SimRegions {
   count: number;
+  /** 每州的稳定键(`region:c4567` 这类,命令里能直接写,同一个世界里地形大事前后不变) */
+  keys: string[];
   /** 平方公里 */
   area: Float64Array;
   /** 治所地块 */
@@ -482,9 +485,14 @@ export function simRead(sim: CivSim): SimRead | null {
     regions() {
       const reg = T.regions;
       const area = new Float64Array(R);
-      for (let r = 0; r < R; r++) area[r] = reg.area[r] * KM_PER_UNIT * KM_PER_UNIT;
+      const keys: string[] = new Array(R);
+      for (let r = 0; r < R; r++) {
+        area[r] = reg.area[r] * KM_PER_UNIT * KM_PER_UNIT;
+        keys[r] = regionKeyAt(reg, r);
+      }
       return {
         count: R,
+        keys,
         area,
         seat: reg.seat.slice(0, R),
         biome: reg.biome.slice(0, R),
